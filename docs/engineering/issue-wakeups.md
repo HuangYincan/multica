@@ -144,14 +144,14 @@ Enable/rearm retains the stored actor filter; an explicit full update can replac
 or clear it. The sidebar, board summary and inventory show the actor's name;
 private agent references are redacted, retaining a generic selected-actor label.
 
-Migrations 522–523 add nullable actor columns and update transactional capture.
+Migrations 531–532 add nullable actor columns and update transactional capture.
 Apply migrations, then deploy the API/CLI before creating actor-filtered rules;
 update web/Desktop to display the actor restriction. Old clients can read the
 additive response, but cannot show the new restriction. On application rollback,
 keep these migrations: the database still enforces stored filters even for older
 consumers. Schema rollback deliberately refuses while any actor-filtered rule
 exists, including disabled rules, so a later re-enable cannot silently broaden
-it. Disable/drain and remove those configurations before rolling 523/522 back.
+it. Disable/drain and remove those configurations before rolling 532/531 back.
 
 The platform lifecycle names `issue.created` and `issue.deleted` are listed
 separately and rejected for self-wakeups: subscription requires an existing
@@ -207,7 +207,7 @@ Deploy the updated CLI and daemon with the server to recognize the wakeup comman
 and per-turn prompt. Before rollback, disable/drain wakeups; do not remove their
 configuration tables while tasks still reference them.
 
-Migration 511 adds capture hooks without indexes, table rewrites, or foreign
+Migration 520 adds capture hooks without indexes, table rewrites, or foreign
 keys. Deploy it before admitting subscriptions to the expanded catalog. Older
 servers still dispatch the added receipts and older sidebars fall back to raw
 event names; only updated servers accept create/update with new event types.
@@ -219,23 +219,31 @@ code back, disable subscriptions using the expanded catalog; before rolling the
 capture migration back, drain their inputs as well. The down migration restores
 the original five-event capture behavior and retains configuration/receipt data.
 
-Migration 512 adds a concurrent partial index for enabled workspace summaries.
+Migration 521 adds a concurrent partial index for enabled workspace summaries.
 It can be rolled back independently of configuration data. Deploy the server
 before the UI: an older server lacks the summary endpoint, so cards cannot
 show future wakeups until it is upgraded. Existing task activity still works.
 New detail fields are optional for rolling compatibility.
 
-Migration 514 excludes the registering run's own events, in addition to events
+Migration 523 excludes the registering run's own events, in addition to events
 from runs produced by the same rule. Human/external events with no source run
 still match. Apply this migration before enabling broad agent-created subscriptions.
 Rolling it back restores the previous capture function without rewriting data;
 disable affected subscriptions first to avoid registration feedback.
 
-This unmerged branch's migrations use prefixes 500–523 to follow main's 495–499.
-Local databases that already applied the previous 495–508 wakeup filenames must
-rename those exact `schema_migrations.version` entries by +5 before updating.
-Do not rename main's migrations or rerun the table-creation migration. Fresh
-databases use the normal migration runner.
+This unmerged branch's wakeup migrations use prefixes 509–532, following
+main's migrations through 508. The previously used 500–523 wakeup names were
+renumbered by +9 without changing their SQL or relative execution order.
+
+Before updating a local database that has already applied the old branch,
+stop its API and daemon and rename only the exact wakeup
+`schema_migrations.version` entries from the old filenames to the new filenames
+(+9). Do not rename main's similarly numbered migrations or rerun the base
+wakeup table creation. Databases still on the older 495–508 wakeup names first
+need the previous +5 rename to the 500–513 names, then this +9 rename.
+Keep this ledger change transactional; leave all wakeup rules, receipts and
+queued tasks intact. Fresh databases use the normal migration runner.
+
 
 Dispatch keeps the instruction and recent evidence within a 40,000-byte prompt
 budget. Large or older details are explicitly condensed; original receipts remain
@@ -326,8 +334,8 @@ Run history and source comments are unaffected. Receipt keys suppress retained
 first/latest fact duplicates; they are not a permanent deduplication ledger for
 all intermediate coalesced facts.
 
-Migrations 515–518 add concurrent lookup/expiry indexes, 519 adds a nullable
-coalescing key, 520 adds its partial unique index, and 521 enables bounded capture
+Migrations 524–527 add concurrent lookup/expiry indexes, 528 adds a nullable
+coalescing key, 529 adds its partial unique index, and 530 enables bounded capture
 and activation limits. Apply in that order before the new server. No existing
 receipt rewrite is needed. New consumers lock receipt rows before constructing
 queue evidence. Each merge also rotates its receipt ID: an old consumer can only
@@ -337,7 +345,7 @@ is avoided). Existing event/task keys and API fields remain compatible.
 
 Rolling application code back leaves the database limits and coalescing active;
 old consumers can still drain the notifications. To roll the schema back, reverse
-521 before dropping 520/519 and the additive indexes. This restores the prior
+530 before dropping 529/528 and the additive indexes. This restores the prior
 capture function and removes limits without deleting rules or pending inputs.
 The base wakeup tables must still be retained while any wakeup runs reference them.
 

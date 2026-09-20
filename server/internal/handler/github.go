@@ -767,7 +767,7 @@ func (h *Handler) ListGitHubInstallationRepositories(w http.ResponseWriter, r *h
 		return
 	}
 	if !isGitHubRepositoryBrowseConfigured() {
-		writeError(w, http.StatusServiceUnavailable, "github repository browsing is not configured")
+		writeFeatureDisabled(w, "github_repository_browsing_not_configured", "github repository browsing is not configured")
 		return
 	}
 	page, ok := parseGitHubPageParam(w, r, "page", 1, 1, 100000)
@@ -1062,7 +1062,7 @@ func (h *Handler) HandleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	if secret == "" {
 		// Refusing to process webhooks at all is safer than treating an
 		// unconfigured deployment as "all signatures valid".
-		writeError(w, http.StatusServiceUnavailable, "github webhooks not configured")
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 	sigHeader := r.Header.Get("X-Hub-Signature-256")
