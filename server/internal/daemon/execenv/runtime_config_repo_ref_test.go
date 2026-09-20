@@ -105,3 +105,44 @@ func TestProjectContextSaysThePinIsAlreadyApplied(t *testing.T) {
 		t.Errorf("Project Context should frame --ref as the override; got:\n%s", out)
 	}
 }
+
+// A resumed task can outlive a change to the project's starting point. The
+// checkout is kept as it was — holding work branched off the OLD value — while
+// the brief, rebuilt from the current claim, names the new one. An agent that
+// retargeted on the brief alone would deliver the old line's work into the new
+// line, and would contradict what the edit dialog promises: work already
+// underway keeps the branch it started on.
+//
+// The brief cannot resolve this itself; whether a checkout was reused is only
+// known once `repo checkout` runs. So it defers to the checkout, which already
+// reports Kept and names the branch it is on.
+func TestDeliveryRuleDefersToAKeptCheckout(t *testing.T) {
+	t.Parallel()
+	ctx := TaskContextForEnv{
+		IssueID: "i-1", AgentName: "Eve", AgentID: "eve-1",
+		Repos: []RepoContextForEnv{{URL: "https://github.com/o/r", Ref: "release/b"}},
+	}
+	out := buildMetaSkillContent("claude", ctx)
+
+	if !strings.Contains(out, "KEPT an existing checkout") {
+		t.Errorf("brief should name the kept-checkout case; got:\n%s", out)
+	}
+	if !strings.Contains(out, "not to the one listed above") {
+		t.Errorf("brief should tell the agent the listed branch is not authoritative on a resume; got:\n%s", out)
+	}
+}
+
+// The resume carve-out rides with the delivery rule: no pin, no --base
+// instruction, so nothing to qualify either.
+func TestResumeCarveOutOnlyAppearsAlongsideTheDeliveryRule(t *testing.T) {
+	t.Parallel()
+	ctx := TaskContextForEnv{
+		IssueID: "i-1", AgentName: "Eve", AgentID: "eve-1",
+		Repos: []RepoContextForEnv{{URL: "https://github.com/o/r"}},
+	}
+	out := buildMetaSkillContent("claude", ctx)
+
+	if strings.Contains(out, "KEPT an existing checkout") {
+		t.Errorf("nothing is pinned, so the resume carve-out is noise; got:\n%s", out)
+	}
+}

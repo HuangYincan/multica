@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import {
   looksLikeCommitSha,
   validateGitRef,
@@ -34,16 +35,23 @@ export function GithubRefField({
   onChange,
   onSubmit,
   autoFocus,
-  id,
+  id: providedId,
 }: {
   value: string;
   onChange: (next: string) => void;
   /** Enter in the field — lets a dialog save without reaching for the mouse. */
   onSubmit?: () => void;
   autoFocus?: boolean;
+  /** Optional stable id; one is generated when omitted. */
   id?: string;
 }) {
   const { t } = useT("projects");
+  // Generated rather than required, because a caller that renders one field
+  // PER REPO cannot supply a static id and would otherwise pass none — which
+  // silently detaches the label from its input and leaves the field unnamed
+  // for a screen reader and untargetable by getByLabelText.
+  const generatedId = useId();
+  const id = providedId ?? generatedId;
   const error = refErrorMessage(value, t);
 
   return (
@@ -68,11 +76,11 @@ export function GithubRefField({
         autoCorrect="off"
         placeholder={t(($) => $.resources.ref_placeholder)}
         aria-invalid={error !== null}
-        aria-describedby={id ? `${id}-hint` : undefined}
+        aria-describedby={`${id}-hint`}
         className="h-8 w-full rounded-md border bg-transparent px-2 font-mono text-caption outline-none placeholder:font-sans placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring aria-invalid:border-destructive"
       />
       <p
-        id={id ? `${id}-hint` : undefined}
+        id={`${id}-hint`}
         className={`text-micro ${error ? "text-destructive" : "text-muted-foreground"}`}
       >
         {error ?? t(($) => $.resources.ref_hint)}

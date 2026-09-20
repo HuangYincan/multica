@@ -940,14 +940,16 @@ function CustomRepoForm({
   // .../tree/<branch> URL is split into its two halves here rather than stored
   // whole as a clone URL that does not exist. The result lands in the visible
   // fields, so a wrong guess is obvious before anything is saved.
+  //
+  // Normalising the URL is unconditional. Gating it on the branch field being
+  // empty meant a second pasted browse URL was stored whole. Whether to
+  // overwrite the BRANCH is the separate question, and the pasted pair wins:
+  // the branch field only appears once a URL is present, so a value sitting in
+  // it came from the previous URL rather than from something typed ahead.
   const handleUrlChange = (next: string) => {
     const split = splitGithubUrlRef(next);
-    if (split.ref && !ref) {
-      setUrl(split.url);
-      setRef(split.ref);
-      return;
-    }
-    setUrl(next);
+    setUrl(split.url);
+    if (split.ref) setRef(split.ref);
   };
 
   const handle = async (e: React.FormEvent) => {

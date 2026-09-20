@@ -457,6 +457,19 @@ func writeRepositories(b *strings.Builder, ctx TaskContextForEnv) {
 		b.WriteString("\nA repository that starts from a branch is already checked out there — do not pass `--ref` to get back to it. ")
 		b.WriteString("Deliver to the same line: open pull requests with `gh pr create --base <that-branch>`. ")
 		b.WriteString("If what it starts from is a tag or a commit rather than a branch, treat it as a starting point only and confirm the target branch before opening a pull request.\n")
+		// The starting point above is the project's CURRENT setting, read when
+		// this run was claimed. A resumed task can outlive a change to it: the
+		// checkout is kept as it was, holding work branched off the OLD value,
+		// while this section now names the new one. Retargeting on that basis
+		// would deliver the old line's work into the new one — and it would
+		// break the promise the edit dialog makes, that work already underway
+		// keeps the branch it started on.
+		//
+		// The checkout itself is the authority, and it already says so:
+		// `repo checkout` reports when it kept an existing checkout, and names
+		// the branch it is on.
+		b.WriteString("\nIf `multica repo checkout` reports that it KEPT an existing checkout, you are continuing work that began earlier — possibly before this starting point was last changed. ")
+		b.WriteString("Deliver that work to the branch it actually started from, which the checkout names, not to the one listed above; ask if you cannot tell which that is.\n")
 	}
 	b.WriteString("\n")
 }

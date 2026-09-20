@@ -193,6 +193,35 @@ describe("ProjectResourcesSection — github_repo checkout ref", () => {
     });
   });
 
+  // Regression: the split was gated on the branch field being empty, so a
+  // SECOND pasted browse URL went in whole as the clone URL.
+  it("normalises a pasted browse URL even when a branch is already filled in", async () => {
+    renderWithI18n(<ProjectResourcesSection projectId="p1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /add resource/i }));
+    const urlInput = () => screen.getByLabelText(/attach a github repo/i) as HTMLInputElement;
+    const refInput = () => screen.getByLabelText(/starting branch/i) as HTMLInputElement;
+
+    fireEvent.change(urlInput(), {
+      target: { value: "https://github.com/multica-ai/one/tree/release/2026-09" },
+    });
+    expect(urlInput().value).toBe("https://github.com/multica-ai/one");
+    expect(refInput().value).toBe("release/2026-09");
+
+    fireEvent.change(urlInput(), {
+      target: { value: "https://github.com/multica-ai/two/tree/main" },
+    });
+    expect(urlInput().value).toBe("https://github.com/multica-ai/two");
+    expect(refInput().value).toBe("main");
+
+    fireEvent.click(screen.getByRole("button", { name: /^add$/i }));
+    await waitFor(() => expect(createMock).toHaveBeenCalledTimes(1));
+    expect(createMock.mock.calls[0]?.[0]).toEqual({
+      resource_type: "github_repo",
+      resource_ref: { url: "https://github.com/multica-ai/two", ref: "main" },
+    });
+  });
+
   it("omits the ref key entirely when the field is left empty", async () => {
     renderWithI18n(<ProjectResourcesSection projectId="p1" />);
 

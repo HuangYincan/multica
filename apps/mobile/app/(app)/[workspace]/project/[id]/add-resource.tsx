@@ -40,18 +40,15 @@ export default function AddResourceRoute() {
   // GITHUB_PATTERN accepts the whole `.../tree/<branch>` string — which used to
   // be stored as the clone URL, a target that does not exist. Split it into the
   // two visible fields instead, so a wrong guess is correctable before saving.
-  const onUrlChange = useCallback(
-    (next: string) => {
-      const split = splitGithubUrlRef(next);
-      if (split.ref && !ref) {
-        setUrl(split.url);
-        setRef(split.ref);
-        return;
-      }
-      setUrl(next);
-    },
-    [ref],
-  );
+  //
+  // Normalising the URL is unconditional: gating it on the branch field being
+  // empty meant a second pasted browse URL was stored whole. Whether to
+  // overwrite the branch is the separate question, and the pasted pair wins.
+  const onUrlChange = useCallback((next: string) => {
+    const split = splitGithubUrlRef(next);
+    setUrl(split.url);
+    if (split.ref) setRef(split.ref);
+  }, []);
 
   const refMessage = refErrorMessage(ref);
   const valid = GITHUB_PATTERN.test(url.trim()) && refMessage === null;

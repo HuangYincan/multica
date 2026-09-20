@@ -329,8 +329,19 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
 
   const createProject = useCreateProject();
 
+  // Every selected repo's branch, not just the one in the add field. A branch
+  // edited on an already-selected row goes through setRepoRef and used to
+  // reach the payload with only an inline error to show for it — the server
+  // accepts commit ids by design, so nothing downstream would have caught it.
+  const hasRejectedRepoRef = selectedRepos.some((url) =>
+    githubRefHasError(repoRefs[url] ?? ""),
+  );
+
   const handleSubmit = async () => {
+    // Checked here as well as on the button: TitleEditor's onSubmit calls this
+    // directly, so a disabled button alone leaves the keyboard path open.
     if (!title.trim() || submitting) return;
+    if (sourceMode === "repos" && hasRejectedRepoRef) return;
     // `sourceMode` decides which side's stash gets persisted — the other
     // side is silently dropped, so repos picked then abandoned for local
     // mode don't leak into the project.
@@ -420,14 +431,18 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
   // .../tree/<branch> URL is split into its two halves rather than added whole
   // as a clone URL that does not exist. Both halves land in visible fields, so
   // a wrong guess is obvious before the project is created.
+  //
+  // Normalising the URL is unconditional. Gating it on the branch field being
+  // empty meant a second pasted browse URL — changing your mind about which
+  // repo — was stored whole, producing a clone target that does not exist.
+  // Whether to overwrite the BRANCH is the separate question, and the pasted
+  // pair wins: the branch field only appears once a URL is present, so a value
+  // sitting in it came from the previous URL, not from something the user
+  // typed ahead of time.
   const handleCustomRepoUrlChange = (next: string) => {
     const split = splitGithubUrlRef(next);
-    if (split.ref && !customRepoRef) {
-      setCustomRepoUrl(split.url);
-      setCustomRepoRef(split.ref);
-      return;
-    }
-    setCustomRepoUrl(next);
+    setCustomRepoUrl(split.url);
+    if (split.ref) setCustomRepoRef(split.ref);
   };
 
   const setRepoRef = (url: string, ref: string) => {
@@ -1080,7 +1095,11 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
           <Button
             size="sm"
             onClick={handleSubmit}
-            disabled={!title.trim() || submitting}
+            disabled={
+              !title.trim() ||
+              submitting ||
+              (sourceMode === "repos" && hasRejectedRepoRef)
+            }
             className="shrink-0"
           >
             {submitting ? t(($) => $.create_project.submitting) : t(($) => $.create_project.submit)}
