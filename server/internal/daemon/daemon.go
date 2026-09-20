@@ -32,6 +32,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/daemon/repocache"
 	"github.com/multica-ai/multica/server/internal/selfexec"
 	"github.com/multica-ai/multica/server/pkg/agent"
+	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/redact"
 	"github.com/multica-ai/multica/server/pkg/skillbundle"
 	"github.com/multica-ai/multica/server/pkg/taskfailure"
@@ -580,6 +581,9 @@ type Daemon struct {
 	pendingWorkMu       sync.Mutex
 	pendingWorkInflight map[string]struct{}  // runtime_id -> hint-driven heartbeat in flight
 	pendingWorkLastRun  map[string]time.Time // runtime_id -> when the last hint-driven heartbeat started
+	// Negotiated from heartbeat acknowledgements or a server-originated steer
+	// hint. Until then a new daemon must not poll an older server's missing API.
+	taskSteerServerSupported atomic.Bool
 
 	cancelFunc context.CancelFunc // set by Run(); called by triggerRestart
 	rootCtx    context.Context    // set by Run(); used by long-running recoveries that must survive per-runtime ctx cancellation
@@ -4558,6 +4562,14 @@ func (d *Daemon) handleHeartbeatActions(ctx context.Context, runtimeID string, r
 	if resp == nil {
 		return
 	}
+	steerSupported := false
+	for _, capability := range resp.ServerCapabilities {
+		if capability == protocol.DaemonCapabilityTaskSteerV1 {
+			steerSupported = true
+			break
+		}
+	}
+	d.taskSteerServerSupported.Store(steerSupported)
 	if resp.PendingUpdate != nil || resp.PendingModelList != nil || resp.PendingLocalSkills != nil || resp.PendingLocalSkillImport != nil {
 		d.logger.Debug("heartbeat: pending actions",
 			"runtime_id", runtimeID,
@@ -4618,6 +4630,15 @@ func (d *Daemon) handlePendingWorkHint(runtimeID, kind string) {
 	}
 	if d.findRuntime(runtimeID) == nil {
 		// Not one of ours (stale relay fanout, or the runtime was just pruned).
+		return
+	}
+	if kind == protocol.PendingWorkKindTaskSteer {
+		// Receiving this server-owned hint is itself positive feature
+		// negotiation; old servers cannot emit the new kind.
+		d.taskSteerServerSupported.Store(true)
+		// Active sessions recover steering work through their short durable poll.
+		// The hint only removes latency for older generic pending-work consumers;
+		// it must not turn a comment into a heartbeat/claim cycle here.
 		return
 	}
 
@@ -9272,6 +9293,66 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 	defer d.runningTasks.Add(-1)
 	phaseRecorder.Mark(taskPhaseRuntimeStarted)
 	taskLog.Debug("backend started, draining messages")
+
+	// Pull steering instructions while this exact provider session is alive.
+	// The database claim is the ordering/idempotency boundary; the short poll is
+	// also the recovery path when a best-effort WS pending-work hint is lost.
+	steerCtx, cancelSteer := context.WithCancel(agentCtx)
+	steerDone := make(chan struct{})
+	if session.Steer != nil {
+		go func() {
+			defer close(steerDone)
+			ticker := time.NewTicker(500 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				if !d.taskSteerServerSupported.Load() {
+					select {
+					case <-steerCtx.Done():
+						return
+					case <-ticker.C:
+						continue
+					}
+				}
+				claimCtx, cancel := context.WithTimeout(steerCtx, 3*time.Second)
+				steer, claimErr := d.client.ClaimCommentSteer(claimCtx, taskID)
+				cancel()
+				if claimErr != nil {
+					if steerCtx.Err() != nil {
+						return
+					}
+					taskLog.Debug("comment steer claim failed", "error", claimErr)
+				} else if steer != nil {
+					injectCtx, cancelInject := context.WithTimeout(steerCtx, 5*time.Second)
+					injectErr := session.Steer(injectCtx, steer.Content)
+					cancelInject()
+					injectErrText := ""
+					if injectErr != nil {
+						injectErrText = injectErr.Error()
+					}
+					ackCtx, cancelAck := context.WithTimeout(context.Background(), 5*time.Second)
+					_, ackErr := d.client.AckCommentSteer(ackCtx, taskID, steer.CommentID, injectErr == nil, injectErrText)
+					cancelAck()
+					if ackErr != nil {
+						taskLog.Warn("comment steer acknowledgement failed", "comment_id", steer.CommentID, "error", ackErr)
+					}
+					// Drain all currently pending rows before sleeping so several
+					// comments retain their database order at one safe boundary.
+					continue
+				}
+				select {
+				case <-steerCtx.Done():
+					return
+				case <-ticker.C:
+				}
+			}
+		}()
+	} else {
+		close(steerDone)
+	}
+	defer func() {
+		cancelSteer()
+		<-steerDone
+	}()
 
 	// Bound the drain loop only when there is a wall-clock cap. With a positive
 	// opts.Timeout, give the drain a slightly longer deadline than the backend

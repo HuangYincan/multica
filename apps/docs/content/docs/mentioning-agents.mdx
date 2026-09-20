@@ -47,7 +47,9 @@ Replies stay with the target agent even while its runtime is offline or busy. Mu
 
 ## Coalescing consecutive comments
 
-When the same agent already has a waiting run on the issue, new consecutive comments merge into the pending run; if the agent is already running, later comments wait for the current run to finish and merge into a single follow-up run. You can keep adding information without waiting for the agent to reply.
+When the same agent already has a waiting run on the issue, new consecutive comments merge into the pending run. If a human posts in the same thread while that agent has exactly one active Codex or Claude turn on a compatible runtime, Multica delivers the comment to that turn at its next safe boundary. The composer shows this destination before sending, and the saved comment shows a separate receipt for each agent.
+
+If the runtime does not support steering, the route is ambiguous, the turn ends first, or delivery fails or times out, the comment falls back losslessly to the existing single follow-up run. Stop remains independent: stopping a run does not discard the comment. Steered comments also remain in issue history so a later run can re-read them.
 
 When one comment @-mentions several different agents, each agent gets its own run; multiple mentions resolving to the same agent keep only one.
 

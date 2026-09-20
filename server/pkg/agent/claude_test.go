@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -1319,5 +1320,28 @@ func TestBuildClaudeArgsManagedSkillSettingsWins(t *testing.T) {
 	}
 	if !strings.Contains(joined, "--max-turns 7") {
 		t.Fatalf("unrelated custom arg was dropped: %v", args)
+	}
+}
+
+func TestClaudeInputStreamCloseUnblocksWriteAndRejectsLaterFrames(t *testing.T) {
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	stream := &claudeInputStream{writer: writer, closer: writer}
+	written := make(chan error, 1)
+	go func() {
+		_, err := stream.Write([]byte("blocked"))
+		written <- err
+	}()
+	time.Sleep(10 * time.Millisecond)
+	if err := stream.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	select {
+	case <-written:
+	case <-time.After(time.Second):
+		t.Fatal("close did not unblock the active stdin write")
+	}
+	if _, err := stream.Write([]byte("late")); err == nil {
+		t.Fatal("write after terminal close succeeded")
 	}
 }
