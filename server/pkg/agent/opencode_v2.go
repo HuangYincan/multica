@@ -18,16 +18,18 @@ import (
 //   - `--variant` was removed. A model variant now rides along inside the model
 //     string as `provider/model#variant`.
 //   - OPENCODE_CONFIG_CONTENT is no longer honoured, and the only channel left
-//     for agent.mcp_config puts credentials somewhere the agent can commit them.
-//     Such runs are refused — see ErrOpenCodeV2MCPUnsupported.
+//     for MCP puts credentials somewhere the agent can commit them. Such runs
+//     are refused — see ErrOpenCodeV2MCPUnsupported.
 //   - `opencode run` became a thin client in front of a resident background
 //     service, so signalling the client's process group no longer stops the
 //     work that run started.
 //
-// Only the `--dir` removal fails loudly (`Unrecognized flag: --dir`, exit 1
-// within ~130ms, GH #8586). The other three are silent: a run that merely drops
-// `--dir` starts fine and then executes without its MCP servers, and cannot be
-// cancelled. That is why they are handled together rather than one at a time.
+// The two removed flags fail loudly — `Unrecognized flag: --dir`, exit 1 within
+// ~130ms (GH #8586), and the same for `--variant` on any agent with a thinking
+// level. The other two do not announce themselves at all: before this file, a
+// run that merely dropped `--dir` started fine and then executed without its MCP
+// servers and without a working cancel. Handling them together is what keeps
+// fixing the loud failure from exposing the quiet ones.
 //
 // Everything else the backend relies on was checked against 2.0.10 and is
 // unchanged across the two majors — the `--format json` event vocabulary,
@@ -92,8 +94,17 @@ func opencodeModelArg(model, thinkingLevel string) (string, bool) {
 	return model + "#" + thinkingLevel, true
 }
 
-// ErrOpenCodeV2MCPUnsupported reports that agent.mcp_config cannot be delivered
-// to an OpenCode 2.x runtime yet.
+// ErrOpenCodeV2MCPUnsupported reports that the MCP servers Multica manages for
+// a task cannot be delivered to an OpenCode 2.x runtime yet.
+//
+// The message deliberately does not name agent.mcp_config. ExecOptions.McpConfig
+// is the *composed* set, and only one of its sources is the agent's own column:
+// the daemon also folds in the workspace MCP servers bound to the agent (at
+// claim), the task's integration/Composio servers and the plugin-hook tool
+// server (at run), and the runtime's own servers on top of those. A task whose
+// agent has no MCP configuration at all still arrives here with a non-empty
+// config, so an error telling the operator to edit agent.mcp_config would point
+// at a field that may be empty already and would not release the task.
 //
 // 2.x honours no environment channel for config — OPENCODE_CONFIG_CONTENT (the
 // 1.x channel), OPENCODE_CLI_CONFIG_CONTENT, OPENCODE_CONFIG and
@@ -112,20 +123,24 @@ func opencodeModelArg(model, thinkingLevel string) (string, bool) {
 // MCP server the agent was configured with, which is harder to diagnose than a
 // refusal naming the cause.
 //
-// The way out is known and measured, and wants its own change: `--standalone`
-// gives the run a private server that inherits the daemon's environment, and
-// 2.x then resolves `{env:NAME}` placeholders inside the config, so the file can
-// carry references while the secrets stay in the process environment. That
-// costs a server start per run and changes the process topology cancellation
-// depends on, so it is not something to fold into a compatibility fix.
+// The way out is known and measured, and wants its own change (MUL-7523):
+// `--standalone` gives the run a private server that inherits the daemon's
+// environment, and 2.x then resolves `{env:NAME}` placeholders inside the
+// config, so the file can carry references while the secrets stay in the
+// process environment. That costs a server start per run and changes the
+// process topology cancellation depends on, so it is not something to fold into
+// a compatibility fix.
 var ErrOpenCodeV2MCPUnsupported = errors.New(
-	"opencode: agent.mcp_config cannot be delivered to an OpenCode 2.x runtime yet " +
-		"(2.x accepts MCP config only through a file in the task workdir, where the agent's own " +
-		"commits would capture the credentials); use an OpenCode 1.x runtime for this agent, " +
-		"or remove agent.mcp_config")
+	"opencode: Multica-managed MCP servers cannot be delivered to an OpenCode 2.x runtime yet. " +
+		"2.x accepts MCP configuration only through a file in the task working directory, where " +
+		"the agent's own commits would capture the servers' credentials. " +
+		"To run this task: point the agent at an OpenCode 1.x runtime, or remove the MCP servers " +
+		"Multica supplies it — these can come from the agent's MCP configuration, workspace MCP " +
+		"servers bound to the agent, the workspace's integration tools, or an installed plugin's " +
+		"hook tools")
 
 // opencodeCheckMCPSupport fails a 2.x run that carries MCP configuration, rather
-// than starting it without the servers the agent was configured with.
+// than starting it without the servers it was supposed to get.
 func opencodeCheckMCPSupport(raw json.RawMessage) error {
 	if len(raw) == 0 {
 		return nil
