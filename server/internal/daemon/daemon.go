@@ -9306,6 +9306,14 @@ func freshSessionMayHelp(errText string) bool {
 // seq alone, and duplicate seqs would interleave the two attempts' rows.
 type taskSteerRuntimeIDContextKey struct{}
 
+func formatCommentSteerInstruction(authorName, content string) string {
+	authorName = strings.Join(strings.Fields(authorName), " ")
+	if authorName == "" {
+		authorName = "a user"
+	}
+	return fmt.Sprintf("[STEER] Human %s left a new comment while you were working:\n\n%s", strconv.Quote(authorName), content)
+}
+
 func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, prompt string, opts agent.ExecOptions, taskLog *slog.Logger, taskID, codexHome string, msgSeq *atomic.Int32) (agent.Result, int32, error) {
 	phaseRecorder := taskPhaseRecorderFromContext(ctx)
 	// Wrap the caller's ctx so the idle watchdog (below) can interrupt both
@@ -9366,7 +9374,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 					taskLog.Debug("comment steer claim failed", "error", claimErr)
 				} else if steer != nil {
 					injectCtx, cancelInject := context.WithTimeout(steerCtx, 5*time.Second)
-					injectErr := session.Steer(injectCtx, steer.Content)
+					injectErr := session.Steer(injectCtx, formatCommentSteerInstruction(steer.AuthorName, steer.Content))
 					cancelInject()
 					injectErrText := ""
 					if injectErr != nil {

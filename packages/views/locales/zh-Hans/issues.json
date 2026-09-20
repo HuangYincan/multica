@@ -542,7 +542,6 @@
     "trigger_reason_unknown": "将由这条评论开始。",
     "trigger_will_start": "发送后开始",
     "trigger_will_update_current": "将补充当前工作",
-    "trigger_will_receive_count_one": "{{count}} 个 Agent 将收到此消息",
     "trigger_will_receive_count_other": "{{count}} 个 Agent 将收到此消息",
     "trigger_current_work_short": "当前工作",
     "trigger_follow_up_short": "后续工作",

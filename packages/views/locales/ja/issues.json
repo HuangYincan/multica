@@ -542,7 +542,6 @@
     "trigger_reason_unknown": "このコメントで開始します。",
     "trigger_will_start": "送信後に作業を開始します",
     "trigger_will_update_current": "現在の作業に追加します",
-    "trigger_will_receive_count_one": "{{count}} 件のエージェントに届きます",
     "trigger_will_receive_count_other": "{{count}} 件のエージェントに届きます",
     "trigger_current_work_short": "現在の作業",
     "trigger_follow_up_short": "フォローアップ",

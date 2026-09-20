@@ -63,6 +63,7 @@ WITH next_delivery AS (
     JOIN agent_task_queue t ON t.id = d.task_id
     WHERE d.task_id = $1
       AND d.status = 'pending'
+      AND c.author_type = 'member'
       AND t.status = 'running'
     ORDER BY c.created_at, c.id
     FOR UPDATE OF d SKIP LOCKED
@@ -74,15 +75,19 @@ WITH next_delivery AS (
     WHERE d.comment_id = n.comment_id AND d.agent_id = n.agent_id
     RETURNING d.comment_id, d.agent_id, d.task_id
 )
-SELECT claimed.comment_id, claimed.agent_id, claimed.task_id, c.content
-FROM claimed JOIN comment c ON c.id = claimed.comment_id
+SELECT claimed.comment_id, claimed.agent_id, claimed.task_id, c.content,
+       COALESCE(NULLIF(btrim(u.name), ''), 'a user')::text AS author_name
+FROM claimed
+JOIN comment c ON c.id = claimed.comment_id
+LEFT JOIN "user" u ON u.id = c.author_id
 `
 
 type ClaimNextCommentSteerRow struct {
-	CommentID pgtype.UUID `json:"comment_id"`
-	AgentID   pgtype.UUID `json:"agent_id"`
-	TaskID    pgtype.UUID `json:"task_id"`
-	Content   string      `json:"content"`
+	CommentID  pgtype.UUID `json:"comment_id"`
+	AgentID    pgtype.UUID `json:"agent_id"`
+	TaskID     pgtype.UUID `json:"task_id"`
+	Content    string      `json:"content"`
+	AuthorName string      `json:"author_name"`
 }
 
 func (q *Queries) ClaimNextCommentSteer(ctx context.Context, taskID pgtype.UUID) (ClaimNextCommentSteerRow, error) {
@@ -93,6 +98,7 @@ func (q *Queries) ClaimNextCommentSteer(ctx context.Context, taskID pgtype.UUID)
 		&i.AgentID,
 		&i.TaskID,
 		&i.Content,
+		&i.AuthorName,
 	)
 	return i, err
 }
@@ -164,36 +170,38 @@ func (q *Queries) FinalizeUndeliveredCommentSteers(ctx context.Context, taskID p
 	return items, nil
 }
 
-const finalizeUnsuccessfulCommentSteers = `-- name: FinalizeUnsuccessfulCommentSteers :many
-UPDATE comment_agent_delivery
-SET status = 'follow_up', failure_reason = 'turn_unsuccessful', updated_at = now()
-WHERE task_id = $1 AND status <> 'follow_up'
-RETURNING comment_id, agent_id
+const getCommentAgentDelivery = `-- name: GetCommentAgentDelivery :one
+SELECT comment_id, agent_id, task_id, runtime_id, status, delivered_at
+FROM comment_agent_delivery
+WHERE comment_id = $1 AND agent_id = $2
 `
 
-type FinalizeUnsuccessfulCommentSteersRow struct {
+type GetCommentAgentDeliveryParams struct {
 	CommentID pgtype.UUID `json:"comment_id"`
 	AgentID   pgtype.UUID `json:"agent_id"`
 }
 
-func (q *Queries) FinalizeUnsuccessfulCommentSteers(ctx context.Context, taskID pgtype.UUID) ([]FinalizeUnsuccessfulCommentSteersRow, error) {
-	rows, err := q.db.Query(ctx, finalizeUnsuccessfulCommentSteers, taskID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []FinalizeUnsuccessfulCommentSteersRow{}
-	for rows.Next() {
-		var i FinalizeUnsuccessfulCommentSteersRow
-		if err := rows.Scan(&i.CommentID, &i.AgentID); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+type GetCommentAgentDeliveryRow struct {
+	CommentID   pgtype.UUID        `json:"comment_id"`
+	AgentID     pgtype.UUID        `json:"agent_id"`
+	TaskID      pgtype.UUID        `json:"task_id"`
+	RuntimeID   pgtype.UUID        `json:"runtime_id"`
+	Status      string             `json:"status"`
+	DeliveredAt pgtype.Timestamptz `json:"delivered_at"`
+}
+
+func (q *Queries) GetCommentAgentDelivery(ctx context.Context, arg GetCommentAgentDeliveryParams) (GetCommentAgentDeliveryRow, error) {
+	row := q.db.QueryRow(ctx, getCommentAgentDelivery, arg.CommentID, arg.AgentID)
+	var i GetCommentAgentDeliveryRow
+	err := row.Scan(
+		&i.CommentID,
+		&i.AgentID,
+		&i.TaskID,
+		&i.RuntimeID,
+		&i.Status,
+		&i.DeliveredAt,
+	)
+	return i, err
 }
 
 const getCommentSteerDeliveryForTask = `-- name: GetCommentSteerDeliveryForTask :one
@@ -341,9 +349,7 @@ INSERT INTO comment_agent_delivery (
     comment_id, agent_id, task_id, runtime_id, status, failure_reason
 )
 VALUES ($1, $2, NULL, NULL, 'follow_up', $3)
-ON CONFLICT (comment_id, agent_id) DO UPDATE
-SET status = 'follow_up', failure_reason = EXCLUDED.failure_reason, updated_at = now()
-WHERE comment_agent_delivery.status IN ('pending', 'steering')
+ON CONFLICT (comment_id, agent_id) DO NOTHING
 `
 
 type RecordCommentFollowUpDeliveryParams struct {

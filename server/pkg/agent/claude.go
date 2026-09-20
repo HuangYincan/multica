@@ -104,6 +104,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		return nil, fmt.Errorf("claude stdin pipe: %w", err)
 	}
 	input := &claudeInputStream{writer: stdin, closer: stdin}
+	var terminalResultObserved atomic.Bool
 	var closeStdinOnce sync.Once
 	closeStdin := func() { closeStdinOnce.Do(func() { _ = input.Close() }) }
 	// Capture stderr into both the daemon log (as before) and a bounded tail
@@ -245,6 +246,13 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 				}
 				trySend(msgCh, Message{Type: MessageStatus, Status: "running", SessionID: sessionID})
 			case "result":
+				// Close the input stream at the authoritative boundary before parsing
+				// any result detail. Close flips its atomic gate before touching the
+				// descriptor, so an already-blocked write is interrupted and every
+				// later write is rejected. Only then publish the boundary to the
+				// daemon's terminal watchdog.
+				closeStdin()
+				terminalResultObserved.Store(true)
 				sawResult = true
 				finalResultText = msg.ResultText
 				resultIsError = msg.IsError
@@ -253,7 +261,6 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 				if resultUsage := claudeResultUsage(msg, opts.Model); len(resultUsage) > 0 {
 					usage = resultUsage
 				}
-				closeStdin()
 			case "log":
 				if msg.Log != nil {
 					trySend(msgCh, Message{
@@ -366,9 +373,17 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if terminalResultObserved.Load() {
+			return errors.New("claude turn has already produced its terminal result")
+		}
 		return writeClaudeInput(input, instruction)
 	}
-	return &Session{Steer: steer, Messages: msgCh, Result: resCh}, nil
+	return &Session{
+		Steer:            steer,
+		TerminalObserved: terminalResultObserved.Load,
+		Messages:         msgCh,
+		Result:           resCh,
+	}, nil
 }
 
 func (b *claudeBackend) handleAssistant(msg claudeSDKMessage, ch chan<- Message, usage map[string]TokenUsage, seenUsage map[string]struct{}) assistantTurn {
@@ -806,9 +821,9 @@ func writeClaudeInput(w io.Writer, prompt string) error {
 }
 
 // claudeInputStream keeps user steer frames and control responses from
-// interleaving on Claude's shared stream-json stdin. Close takes the same lock,
-// so a successful Write is wholly before the terminal boundary and a later
-// steer fails without writing a partial frame.
+// interleaving on Claude's shared stream-json stdin. Close atomically shuts the
+// gate before closing the descriptor, so a blocked write is interrupted and a
+// later steer fails without writing a partial frame.
 type claudeInputStream struct {
 	writeMu sync.Mutex
 	writer  io.Writer

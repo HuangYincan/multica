@@ -542,7 +542,6 @@
     "trigger_reason_unknown": "이 댓글로 시작합니다.",
     "trigger_will_start": "전송 후 작업을 시작합니다",
     "trigger_will_update_current": "현재 작업에 추가됩니다",
-    "trigger_will_receive_count_one": "에이전트 {{count}}명이 받습니다",
     "trigger_will_receive_count_other": "에이전트 {{count}}명이 받습니다",
     "trigger_current_work_short": "현재 작업",
     "trigger_follow_up_short": "후속 작업",

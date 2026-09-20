@@ -129,6 +129,14 @@ func TestHandleHeartbeatActionsNegotiatesTaskSteerServerCapability(t *testing.T)
 	}
 }
 
+func TestFormatCommentSteerInstructionCarriesHumanSource(t *testing.T) {
+	got := formatCommentSteerInstruction("Alice\nAdmin", "keep the migration reversible")
+	want := "[STEER] Human \"Alice Admin\" left a new comment while you were working:\n\nkeep the migration reversible"
+	if got != want {
+		t.Fatalf("steer instruction = %q, want %q", got, want)
+	}
+}
+
 // TestHandlePendingWorkHint_CoalescesConcurrentHints pins the stampede guard:
 // several UI surfaces (model picker, thinking level, service tier) each request
 // the catalog for the same runtime within milliseconds, and one heartbeat

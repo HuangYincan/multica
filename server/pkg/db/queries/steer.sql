@@ -60,9 +60,12 @@ INSERT INTO comment_agent_delivery (
     comment_id, agent_id, task_id, runtime_id, status, failure_reason
 )
 VALUES (@comment_id, @agent_id, NULL, NULL, 'follow_up', @failure_reason)
-ON CONFLICT (comment_id, agent_id) DO UPDATE
-SET status = 'follow_up', failure_reason = EXCLUDED.failure_reason, updated_at = now()
-WHERE comment_agent_delivery.status IN ('pending', 'steering');
+ON CONFLICT (comment_id, agent_id) DO NOTHING;
+
+-- name: GetCommentAgentDelivery :one
+SELECT comment_id, agent_id, task_id, runtime_id, status, delivered_at
+FROM comment_agent_delivery
+WHERE comment_id = @comment_id AND agent_id = @agent_id;
 
 -- name: ClaimNextCommentSteer :one
 WITH next_delivery AS (
@@ -72,6 +75,7 @@ WITH next_delivery AS (
     JOIN agent_task_queue t ON t.id = d.task_id
     WHERE d.task_id = @task_id
       AND d.status = 'pending'
+      AND c.author_type = 'member'
       AND t.status = 'running'
     ORDER BY c.created_at, c.id
     FOR UPDATE OF d SKIP LOCKED
@@ -83,8 +87,11 @@ WITH next_delivery AS (
     WHERE d.comment_id = n.comment_id AND d.agent_id = n.agent_id
     RETURNING d.comment_id, d.agent_id, d.task_id
 )
-SELECT claimed.comment_id, claimed.agent_id, claimed.task_id, c.content
-FROM claimed JOIN comment c ON c.id = claimed.comment_id;
+SELECT claimed.comment_id, claimed.agent_id, claimed.task_id, c.content,
+       COALESCE(NULLIF(btrim(u.name), ''), 'a user')::text AS author_name
+FROM claimed
+JOIN comment c ON c.id = claimed.comment_id
+LEFT JOIN "user" u ON u.id = c.author_id;
 
 -- name: AckCommentSteerDelivered :one
 WITH active_task AS (
@@ -118,12 +125,6 @@ WHERE task_id = @task_id AND comment_id = @comment_id;
 UPDATE comment_agent_delivery
 SET status = 'follow_up', failure_reason = 'turn_ended', updated_at = now()
 WHERE task_id = @task_id AND status IN ('pending', 'steering')
-RETURNING comment_id, agent_id;
-
--- name: FinalizeUnsuccessfulCommentSteers :many
-UPDATE comment_agent_delivery
-SET status = 'follow_up', failure_reason = 'turn_unsuccessful', updated_at = now()
-WHERE task_id = @task_id AND status <> 'follow_up'
 RETURNING comment_id, agent_id;
 
 -- name: ListDeliveredSteerCommentIDs :many

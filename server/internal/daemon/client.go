@@ -440,8 +440,9 @@ func (c *Client) StartTask(ctx context.Context, taskID string) error {
 }
 
 type CommentSteer struct {
-	CommentID string `json:"comment_id"`
-	Content   string `json:"content"`
+	CommentID  string `json:"comment_id"`
+	AuthorName string `json:"author_name"`
+	Content    string `json:"content"`
 }
 
 func (c *Client) ClaimCommentSteer(ctx context.Context, taskID string) (*CommentSteer, error) {

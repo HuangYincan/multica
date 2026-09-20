@@ -2168,16 +2168,41 @@ func (h *Handler) enqueueCommentAgentTriggersWithSteer(ctx context.Context, issu
 	}
 	for _, trigger := range triggers {
 		if allowSteer {
-			if row, err := h.Queries.RegisterCommentSteer(ctx, db.RegisterCommentSteerParams{
+			row, err := h.Queries.RegisterCommentSteer(ctx, db.RegisterCommentSteerParams{
 				CommentID: triggerCommentID,
 				AgentID:   trigger.Agent.ID,
 				IssueID:   issue.ID,
 				HeadSha:   steerHeadSHA,
-			}); err == nil && row.Status != "follow_up" {
+			})
+			if err == nil && row.Status != "follow_up" {
 				h.requestDaemonPendingWork(uuidToString(row.RuntimeID), protocol.PendingWorkKindTaskSteer)
 				record(trigger, DispatchSteering, ReasonSteering)
 				continue
-			} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			}
+			if errors.Is(err, pgx.ErrNoRows) {
+				// Registration is intentionally idempotent. A create retry or a
+				// comment edit can find the same delivery already pending, claimed,
+				// or delivered. None may fall through to the follow-up enqueue path:
+				// a claimed edit could otherwise inject the old body now and enqueue
+				// the edited body for a second run, while rewriting its receipt.
+				existing, loadErr := h.Queries.GetCommentAgentDelivery(ctx, db.GetCommentAgentDeliveryParams{
+					CommentID: triggerCommentID,
+					AgentID:   trigger.Agent.ID,
+				})
+				if loadErr == nil {
+					switch existing.Status {
+					case "pending":
+						h.requestDaemonPendingWork(uuidToString(existing.RuntimeID), protocol.PendingWorkKindTaskSteer)
+						fallthrough
+					case "steering", "delivered":
+						record(trigger, DispatchSteering, ReasonSteering)
+						continue
+					}
+				} else if !errors.Is(loadErr, pgx.ErrNoRows) {
+					slog.Warn("load existing comment steer failed; falling back to follow-up",
+						"issue_id", uuidToString(issue.ID), "agent_id", uuidToString(trigger.Agent.ID), "error", loadErr)
+				}
+			} else if err != nil {
 				slog.Warn("register comment steer failed; falling back to follow-up",
 					"issue_id", uuidToString(issue.ID), "agent_id", uuidToString(trigger.Agent.ID), "error", err)
 			}
@@ -3518,7 +3543,7 @@ func (h *Handler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 		// revision writes defer cancellation until the conditional UPDATE wins,
 		// so a race that returns 409 cannot mutate the task queue.
 		if !strictContentEdit {
-			cancelled, err = h.TaskService.CancelTasksByTriggerComment(r.Context(), existing.ID)
+			cancelled, err = h.TaskService.CancelTasksByEditedComment(r.Context(), existing.ID)
 			if err != nil {
 				slog.Warn("cancel tasks for edited comment failed", "comment_id", uuidToString(existing.ID), "error", err)
 				writeError(w, http.StatusInternalServerError, "failed to prepare comment edit")
@@ -3561,7 +3586,7 @@ func (h *Handler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 			issueRevision = updated.IssueRevision
 		}
 		if err == nil && oldContent != req.Content && strictContentEdit {
-			cancelled, err = qtx.CancelAgentTasksByTriggerComment(r.Context(), existing.ID)
+			cancelled, err = qtx.CancelAgentTasksByEditedComment(r.Context(), existing.ID)
 			if err == nil {
 				err = service.SettleDeliveredDelegatedFailureRecoveries(r.Context(), qtx, cancelled...)
 			}

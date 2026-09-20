@@ -4109,8 +4109,9 @@ func (h *Handler) ClaimCommentSteer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"comment_id": uuidToString(row.CommentID),
-		"content":    row.Content,
+		"comment_id":  uuidToString(row.CommentID),
+		"author_name": row.AuthorName,
+		"content":     row.Content,
 	})
 }
 
@@ -4454,6 +4455,23 @@ func (h *Handler) emitIssueExecutedOnFirstCompletion(r *http.Request, task *db.A
 	))
 }
 
+// finalizeUndeliveredCommentSteers settles only the receipt. It never schedules
+// work: completion reconciliation owns that behavior, while cancellation and
+// failure must preserve Stop semantics and any retry policy already committed
+// by TaskService. Delivered is a historical fact and is deliberately immutable.
+func (h *Handler) finalizeUndeliveredCommentSteers(ctx context.Context, taskID pgtype.UUID) []pgtype.UUID {
+	rows, err := h.Queries.FinalizeUndeliveredCommentSteers(ctx, taskID)
+	if err != nil {
+		slog.Warn("finalize comment steers failed", "task_id", uuidToString(taskID), "error", err)
+		return nil
+	}
+	updates := make([]pgtype.UUID, 0, len(rows))
+	for _, row := range rows {
+		updates = append(updates, row.CommentID)
+	}
+	return updates
+}
+
 // reconcileCommentsOnCompletion closes the at-least-once gap for member
 // comments a completing run did NOT deliver (MUL-4195).
 //
@@ -4498,29 +4516,10 @@ func (h *Handler) reconcileCommentsOnCompletion(ctx context.Context, task *db.Ag
 	if task == nil || !task.IssueID.Valid || !task.AgentID.Valid || !task.CreatedAt.Valid {
 		return nil
 	}
-	// Anything not acknowledged before the terminal transition keeps the old
-	// lossless follow-up semantics. Delivered steer receipts remain separate
-	// from delivered_comment_ids (approved option A).
-	var finalizeErr error
-	var deliveryUpdates []pgtype.UUID
-	if task.Status == "completed" {
-		var rows []db.FinalizeUndeliveredCommentSteersRow
-		rows, finalizeErr = h.Queries.FinalizeUndeliveredCommentSteers(ctx, task.ID)
-		for _, row := range rows {
-			deliveryUpdates = append(deliveryUpdates, row.CommentID)
-		}
-	} else {
-		// A provider accepting the frame is not proof an aborted/failed turn
-		// acted on it. Stop remains independent and the comment earns follow-up.
-		var rows []db.FinalizeUnsuccessfulCommentSteersRow
-		rows, finalizeErr = h.Queries.FinalizeUnsuccessfulCommentSteers(ctx, task.ID)
-		for _, row := range rows {
-			deliveryUpdates = append(deliveryUpdates, row.CommentID)
-		}
-	}
-	if finalizeErr != nil {
-		slog.Warn("finalize comment steers failed", "task_id", uuidToString(task.ID), "error", finalizeErr)
-	}
+	// Anything not acknowledged before completion keeps the old lossless
+	// follow-up semantics. Delivered steer receipts remain separate from
+	// delivered_comment_ids (approved option A).
+	deliveryUpdates := h.finalizeUndeliveredCommentSteers(ctx, task.ID)
 	plannedCommentIDs := append([]pgtype.UUID{}, task.CoalescedCommentIds...)
 	if task.TriggerCommentID.Valid {
 		plannedCommentIDs = append(plannedCommentIDs, task.TriggerCommentID)
@@ -5122,7 +5121,9 @@ func (h *Handler) failTask(w http.ResponseWriter, r *http.Request, taskID, works
 		writeJSON(w, http.StatusOK, taskToResponse(*task, workspaceID))
 		return
 	}
-	h.publishCommentDeliveryUpdates(r, h.reconcileCommentsOnCompletion(r.Context(), task))
+	// Failure may already have committed its own retry. Settle only undelivered
+	// steer receipts here; generic comment reconciliation is completion-only.
+	h.publishCommentDeliveryUpdates(r, h.finalizeUndeliveredCommentSteers(r.Context(), task.ID))
 	h.TaskService.NotifyTaskFinished(*task)
 
 	// Best-effort revoke of the mat_ task token minted at claim. Same
@@ -5575,7 +5576,10 @@ func (h *Handler) CancelTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	h.publishCommentDeliveryUpdates(r, h.reconcileCommentsOnCompletion(r.Context(), task))
+	// Stop must not enqueue a replacement run. Pending/claimed steer receipts
+	// still become follow_up so the UI records that this turn did not receive
+	// them; delivered receipts remain immutable history.
+	h.publishCommentDeliveryUpdates(r, h.finalizeUndeliveredCommentSteers(r.Context(), task.ID))
 
 	slog.Info("task cancelled by user", "task_id", taskID, "issue_id", uuidToString(task.IssueID))
 	resp := taskToResponse(*task, workspaceID)
