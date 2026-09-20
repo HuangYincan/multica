@@ -7,7 +7,6 @@ import {
   FolderGit,
   FolderOpen,
   GitBranch,
-  Pencil,
   Plus,
   Search,
   Trash2,
@@ -375,37 +374,6 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
     }
   };
 
-  const handleRenameLocalDirectory = async (
-    resource: ProjectResource & { resource_ref: LocalDirectoryResourceRef },
-    nextLabel: string,
-  ) => {
-    const trimmed = nextLabel.trim();
-    if (trimmed === localDirectoryLabel(resource)) return;
-    try {
-      // Top-level label ONLY — renaming must not resend resource_ref.
-      //
-      // The server replaces the ref wholesale with whatever it can parse, so a
-      // server that predates a ref field drops it and answers 200. On a backend
-      // rolled back below v0.4.25 (documented as supported while the runtimes
-      // stay current) that turned "rename this folder" into "silently forget
-      // this folder was isolated", and the next task edited the working copy
-      // (#7113). Omitting the ref keeps the stored one untouched on every
-      // server version — the same reason it must not be resent for any other
-      // unrelated edit either.
-      await updateResource.mutateAsync({
-        resourceId: resource.id,
-        data: { label: trimmed },
-      });
-      toast.success(t(($) => $.resources.toast_local_renamed));
-    } catch (err) {
-      const msg =
-        err instanceof Error
-          ? err.message
-          : t(($) => $.resources.toast_local_rename_failed);
-      toast.error(msg);
-    }
-  };
-
   return (
     <div>
       <button
@@ -432,13 +400,11 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
                   key={resource.id}
                   resource={resource}
                   localDaemonId={localDaemonId}
-                  canEdit={desktopMode}
                   onRemove={() => handleRemove(resource)}
                   onEditGithubRef={(target) => {
                     setRefError(null);
                     setRefDialog({ resource: target });
                   }}
-                  onRenameLocalDirectory={handleRenameLocalDirectory}
                   onEditLocalDirectoryMode={(target) => {
                     setModeError(null);
                     setModeDialog({
@@ -649,15 +615,10 @@ function worktreeUnavailableReason(
 interface ResourceRowProps {
   resource: ProjectResource;
   localDaemonId: string | null;
-  canEdit: boolean;
   onRemove: () => void;
   onEditGithubRef: (
     resource: ProjectResource & { resource_ref: GithubRepoResourceRef },
   ) => void;
-  onRenameLocalDirectory: (
-    resource: ProjectResource & { resource_ref: LocalDirectoryResourceRef },
-    nextLabel: string,
-  ) => Promise<void>;
   onEditLocalDirectoryMode: (
     resource: ProjectResource & { resource_ref: LocalDirectoryResourceRef },
   ) => void;
@@ -666,10 +627,8 @@ interface ResourceRowProps {
 function ResourceRow({
   resource,
   localDaemonId,
-  canEdit,
   onRemove,
   onEditGithubRef,
-  onRenameLocalDirectory,
   onEditLocalDirectoryMode,
 }: ResourceRowProps) {
   const { t } = useT("projects");
@@ -749,9 +708,7 @@ function ResourceRow({
       <LocalDirectoryRow
         resource={resource}
         localDaemonId={localDaemonId}
-        canEdit={canEdit}
         onRemove={onRemove}
-        onRename={onRenameLocalDirectory}
         onEditMode={onEditLocalDirectoryMode}
       />
     );
@@ -777,12 +734,7 @@ function ResourceRow({
 interface LocalDirectoryRowProps {
   resource: ProjectResource & { resource_ref: LocalDirectoryResourceRef };
   localDaemonId: string | null;
-  canEdit: boolean;
   onRemove: () => void;
-  onRename: (
-    resource: ProjectResource & { resource_ref: LocalDirectoryResourceRef },
-    nextLabel: string,
-  ) => Promise<void>;
   onEditMode: (
     resource: ProjectResource & { resource_ref: LocalDirectoryResourceRef },
   ) => void;
@@ -791,9 +743,7 @@ interface LocalDirectoryRowProps {
 function LocalDirectoryRow({
   resource,
   localDaemonId,
-  canEdit,
   onRemove,
-  onRename,
   onEditMode,
 }: LocalDirectoryRowProps) {
   const { t } = useT("projects");
@@ -803,27 +753,10 @@ function LocalDirectoryRow({
   const isForeignDaemon =
     localDaemonId !== null && ref.daemon_id !== localDaemonId;
   const isLocalUnknown = localDaemonId === null;
-  // "disabled" in the spec sense — visual de-emphasis + no chat hint, and
-  // rename is hidden on foreign / unknown-daemon rows because the label
-  // belongs to the owning device. Delete stays available so the user can
-  // drop a stale registration from any device.
+  // "disabled" in the spec sense — visual de-emphasis + no chat hint. Both
+  // actions stay available so the user can drop or reconfigure a stale
+  // registration from any device.
   const mismatch = isForeignDaemon || isLocalUnknown;
-
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(display);
-
-  const startEdit = () => {
-    setDraft(display);
-    setEditing(true);
-  };
-  const commit = async () => {
-    setEditing(false);
-    await onRename(resource, draft);
-  };
-  const cancel = () => {
-    setEditing(false);
-    setDraft(display);
-  };
 
   return (
     <div
@@ -832,50 +765,32 @@ function LocalDirectoryRow({
       }`}
     >
       <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
-      {editing ? (
-        <input
-          autoFocus
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => void commit()}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void commit();
-            } else if (e.key === "Escape") {
-              e.preventDefault();
-              cancel();
-            }
-          }}
-          className="flex-1 min-w-0 rounded-sm border bg-transparent px-1 py-0.5 text-caption outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          aria-label={t(($) => $.resources.local_rename_label)}
+      {/* The name is the folder's own (or whatever a label update stored);
+          there is deliberately no rename here. A folder is identified by its
+          path, and a pencil that only retitled the row read as a broken edit
+          action beside the branch and remove controls (MUL-7525). */}
+      <Tooltip>
+        <TooltipTrigger
+          render={<span className="truncate flex-1">{display}</span>}
         />
-      ) : (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <span className="truncate flex-1">{display}</span>
-            }
-          />
-          <TooltipContent side="top">
-            <div className="space-y-0.5 text-micro">
-              <div className="font-mono">{ref.local_path}</div>
-              {mismatch && (
-                <div className="text-muted-foreground">
-                  {isLocalUnknown
-                    ? t(($) => $.resources.local_no_daemon_tooltip)
-                    : t(($) => $.resources.local_other_machine_tooltip)}
-                </div>
-              )}
-            </div>
-          </TooltipContent>
-        </Tooltip>
-      )}
+        <TooltipContent side="top">
+          <div className="space-y-0.5 text-micro">
+            <div className="font-mono">{ref.local_path}</div>
+            {mismatch && (
+              <div className="text-muted-foreground">
+                {isLocalUnknown
+                  ? t(($) => $.resources.local_no_daemon_tooltip)
+                  : t(($) => $.resources.local_other_machine_tooltip)}
+              </div>
+            )}
+          </div>
+        </TooltipContent>
+      </Tooltip>
       {/* Always visible, unlike the hover-only actions: without it there is no
           way to tell whether tasks on this folder edit it directly or hand back
           a branch, which is the first thing someone asks when a task queues (or
           does not). */}
-      {mode === "worktree" && !editing && (
+      {mode === "worktree" && (
         <Tooltip>
           <TooltipTrigger
             render={
@@ -891,28 +806,16 @@ function LocalDirectoryRow({
         </Tooltip>
       )}
       {/* Not gated on `mismatch`: switching the mode only rewrites a field, so
-          it works from the web app or another device, unlike rename (whose
-          label belongs to the owning machine) or the folder picker. */}
-      {!editing && (
-        <button
-          type="button"
-          onClick={() => onEditMode(resource)}
-          className="opacity-0 group-hover:opacity-100 transition-opacity rounded-sm p-0.5 hover:bg-accent"
-          title={t(($) => $.resources.mode_edit_tooltip)}
-        >
-          <GitBranch className="size-3 text-muted-foreground" />
-        </button>
-      )}
-      {canEdit && !mismatch && !editing && (
-        <button
-          type="button"
-          onClick={startEdit}
-          className="opacity-0 group-hover:opacity-100 transition-opacity rounded-sm p-0.5 hover:bg-accent"
-          title={t(($) => $.resources.local_rename_tooltip)}
-        >
-          <Pencil className="size-3 text-muted-foreground" />
-        </button>
-      )}
+          it works from the web app or another device, unlike the folder
+          picker. */}
+      <button
+        type="button"
+        onClick={() => onEditMode(resource)}
+        className="opacity-0 group-hover:opacity-100 transition-opacity rounded-sm p-0.5 hover:bg-accent"
+        title={t(($) => $.resources.mode_edit_tooltip)}
+      >
+        <GitBranch className="size-3 text-muted-foreground" />
+      </button>
       <button
         type="button"
         onClick={onRemove}
