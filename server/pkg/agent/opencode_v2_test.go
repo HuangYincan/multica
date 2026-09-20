@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -85,276 +86,135 @@ func TestOpencodeModelArg(t *testing.T) {
 	}
 }
 
-// readWorkdirConfig decodes <dir>/opencode.json for assertions.
-func readWorkdirConfig(t *testing.T, dir string) map[string]json.RawMessage {
-	t.Helper()
-	raw, err := os.ReadFile(filepath.Join(dir, opencodeWorkdirConfigName))
-	if err != nil {
-		t.Fatalf("read workdir config: %v", err)
-	}
-	var doc map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("workdir config is not valid JSON (%s): %v", raw, err)
-	}
-	return doc
-}
-
-// mcpServers decodes the mcp section of a workdir config.
-func mcpServers(t *testing.T, dir string) map[string]json.RawMessage {
-	t.Helper()
-	doc := readWorkdirConfig(t, dir)
-	servers := map[string]json.RawMessage{}
-	if section, ok := doc["mcp"]; ok {
-		if err := json.Unmarshal(section, &servers); err != nil {
-			t.Fatalf("mcp section is not an object: %v", err)
-		}
-	}
-	return servers
-}
-
 const testMCPConfig = `{"mcpServers":{"probe":{"command":"node","args":["probe.js"]}}}`
 
-// testMCPConfigWithSecret carries a bearer token, which is what makes the file
-// mode and the withdrawal matter rather than being tidiness.
-const testMCPConfigWithSecret = `{"mcp":{"private":{"type":"remote","url":"https://example.invalid/mcp","headers":{"Authorization":"Bearer FAKE-TEST-TOKEN"}}}}`
-
-func TestOpencodeApplyWorkdirMCPConfigWritesServers(t *testing.T) {
+// TestOpencodeCheckMCPSupport pins the refusal. 2.x has no channel that can
+// carry MCP credentials without putting them where the agent can commit them,
+// so a configured run fails instead of quietly starting without its servers.
+func TestOpencodeCheckMCPSupport(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	injection, err := opencodeApplyWorkdirMCPConfig(dir, json.RawMessage(testMCPConfig), slog.Default())
-	if err != nil {
-		t.Fatalf("apply: %v", err)
+	cases := []struct {
+		name    string
+		raw     string
+		wantErr bool
+	}{
+		{"no mcp config", "", false},
+		{"empty object asks for nothing", `{"mcpServers":{}}`, false},
+		{"configured servers are refused", testMCPConfig, true},
+		{"native opencode shape is refused too", `{"mcp":{"probe":{"type":"local","command":["x"]}}}`, true},
 	}
-	if injection == nil {
-		t.Fatal("expected an injection to withdraw later")
-	}
-	if _, ok := mcpServers(t, dir)["probe"]; !ok {
-		t.Fatalf("expected the probe server in the workdir config")
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var raw json.RawMessage
+			if tc.raw != "" {
+				raw = json.RawMessage(tc.raw)
+			}
+			err := opencodeCheckMCPSupport(raw)
+			if tc.wantErr {
+				if !errors.Is(err, ErrOpenCodeV2MCPUnsupported) {
+					t.Fatalf("expected ErrOpenCodeV2MCPUnsupported, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+		})
 	}
 }
 
-// TestOpencodeApplyWorkdirMCPConfigLeavesUserFileAloneWithoutConfig is the
-// regression for the worst shape of the merge bug: an agent that has no MCP
-// config at all must not touch a workdir config, even one that already has an
-// mcp section. That section belongs to whoever put it there.
-func TestOpencodeApplyWorkdirMCPConfigLeavesUserFileAloneWithoutConfig(t *testing.T) {
+// TestOpencodeV2ExecuteRefusesMCPConfig is the end-to-end half: the run must
+// fail before anything starts, and nothing may be written into the workdir —
+// that file is the whole reason MCP is refused here.
+func TestOpencodeV2ExecuteRefusesMCPConfig(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, opencodeWorkdirConfigName)
-	before := `{"mcp":{"user-owned":{"type":"local","command":["user-tool"]}}}`
-	if err := os.WriteFile(path, []byte(before), 0o600); err != nil {
-		t.Fatalf("seed config: %v", err)
+	tempDir := t.TempDir()
+	marker := filepath.Join(tempDir, "started.txt")
+	fakePath := filepath.Join(tempDir, "opencode")
+	writeTestExecutable(t, fakePath, []byte("#!/bin/sh\ntouch \""+marker+"\"\n"))
+
+	workDir := t.TempDir()
+
+	backend, err := New("opencode", Config{
+		ExecutablePath: fakePath,
+		CLIVersion:     "opencode v2.0.10",
+		BuiltinRuntime: true,
+		Logger:         slog.Default(),
+	})
+	if err != nil {
+		t.Fatalf("new opencode backend: %v", err)
 	}
 
-	injection, err := opencodeApplyWorkdirMCPConfig(dir, nil, slog.Default())
-	if err != nil {
-		t.Fatalf("apply: %v", err)
-	}
-	if injection != nil {
-		t.Fatal("an agent with no mcp_config must not register an injection")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, execErr := backend.Execute(ctx, "prompt-ignored", ExecOptions{
+		Cwd:       workDir,
+		McpConfig: json.RawMessage(testMCPConfig),
+		Timeout:   5 * time.Second,
+	})
+	if !errors.Is(execErr, ErrOpenCodeV2MCPUnsupported) {
+		t.Fatalf("expected the run to be refused, got %v", execErr)
 	}
 
-	after, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("refused run still started the CLI, stat err = %v", err)
 	}
-	if string(after) != before {
-		t.Fatalf("user MCP config was modified:\n before %s\n after  %s", before, after)
+	if _, err := os.Stat(filepath.Join(workDir, "opencode.json")); !os.IsNotExist(err) {
+		t.Fatalf("refused run still wrote a config into the workdir, stat err = %v", err)
 	}
 }
 
-// TestOpencodeApplyWorkdirMCPConfigMergesWithUserServers pins that the daemon
-// adds its servers alongside the user's rather than replacing the section.
-func TestOpencodeApplyWorkdirMCPConfigMergesWithUserServers(t *testing.T) {
+// TestOpencodeV1StillDeliversMCPConfig guards the other side of the refusal:
+// 1.x is unaffected and still projects mcp_config through its env channel.
+func TestOpencodeV1StillDeliversMCPConfig(t *testing.T) {
 	t.Parallel()
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, opencodeWorkdirConfigName)
-	seed := `{"model":"m","mcp":{"user-owned":{"type":"local","command":["user-tool"]}}}`
-	if err := os.WriteFile(path, []byte(seed), 0o600); err != nil {
-		t.Fatalf("seed config: %v", err)
-	}
+	tempDir := t.TempDir()
+	envFile := filepath.Join(tempDir, "env.txt")
+	fakePath := filepath.Join(tempDir, "opencode")
+	script := "#!/bin/sh\ncat > /dev/null\nprintf '%s\\n' \"$OPENCODE_CONFIG_CONTENT\" > \"" + envFile + "\"\n" +
+		"printf '{\"type\":\"step_start\",\"sessionID\":\"ses\",\"part\":{}}\\n'\n" +
+		"printf '{\"type\":\"step_finish\",\"sessionID\":\"ses\",\"part\":{}}\\n'\n"
+	writeTestExecutable(t, fakePath, []byte(script))
 
-	injection, err := opencodeApplyWorkdirMCPConfig(dir, json.RawMessage(testMCPConfig), slog.Default())
+	backend, err := New("opencode", Config{
+		ExecutablePath: fakePath,
+		CLIVersion:     "1.18.31",
+		BuiltinRuntime: true,
+		Logger:         slog.Default(),
+	})
 	if err != nil {
-		t.Fatalf("apply: %v", err)
+		t.Fatalf("new opencode backend: %v", err)
 	}
 
-	servers := mcpServers(t, dir)
-	if _, ok := servers["user-owned"]; !ok {
-		t.Fatalf("user server was dropped: %v", servers)
-	}
-	if _, ok := servers["probe"]; !ok {
-		t.Fatalf("daemon server was not added: %v", servers)
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	// Withdrawal takes back only the daemon's entry.
-	injection.withdraw(slog.Default())
-	servers = mcpServers(t, dir)
-	if _, ok := servers["user-owned"]; !ok {
-		t.Fatalf("withdrawal removed the user's server: %v", servers)
-	}
-	if _, ok := servers["probe"]; ok {
-		t.Fatalf("withdrawal left the daemon's server behind: %v", servers)
-	}
-	if got := string(readWorkdirConfig(t, dir)["model"]); got != `"m"` {
-		t.Fatalf("withdrawal disturbed an unrelated key, got %s", got)
-	}
-}
-
-// TestOpencodeApplyWorkdirMCPConfigRestoresShadowedServer covers a name
-// collision: if the daemon's config and the user's use the same server name,
-// withdrawal has to put the user's definition back, not delete the name.
-func TestOpencodeApplyWorkdirMCPConfigRestoresShadowedServer(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, opencodeWorkdirConfigName)
-	seed := `{"mcp":{"probe":{"type":"local","command":["the-user-version"]}}}`
-	if err := os.WriteFile(path, []byte(seed), 0o600); err != nil {
-		t.Fatalf("seed config: %v", err)
-	}
-
-	injection, err := opencodeApplyWorkdirMCPConfig(dir, json.RawMessage(testMCPConfig), slog.Default())
+	session, err := backend.Execute(ctx, "prompt-ignored", ExecOptions{
+		Cwd:       t.TempDir(),
+		McpConfig: json.RawMessage(testMCPConfig),
+		Timeout:   5 * time.Second,
+	})
 	if err != nil {
-		t.Fatalf("apply: %v", err)
+		t.Fatalf("1.x must still accept mcp_config: %v", err)
 	}
-	if got := string(mcpServers(t, dir)["probe"]); strings.Contains(got, "the-user-version") {
-		t.Fatalf("daemon config should shadow the user's during the run, got %s", got)
-	}
+	go func() {
+		for range session.Messages {
+		}
+	}()
+	<-session.Result
 
-	injection.withdraw(slog.Default())
-	if got := string(mcpServers(t, dir)["probe"]); !strings.Contains(got, "the-user-version") {
-		t.Fatalf("withdrawal must restore the user's definition, got %s", got)
-	}
-}
-
-// TestOpencodeApplyWorkdirMCPConfigKeepsCredentialsPrivate pins the file mode.
-// MCP entries carry bearer headers and OAuth secrets, and in local-directory
-// mode this path sits inside the user's own checkout.
-func TestOpencodeApplyWorkdirMCPConfigKeepsCredentialsPrivate(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	if _, err := opencodeApplyWorkdirMCPConfig(dir, json.RawMessage(testMCPConfigWithSecret), slog.Default()); err != nil {
-		t.Fatalf("apply: %v", err)
-	}
-
-	path := filepath.Join(dir, opencodeWorkdirConfigName)
-	data, err := os.ReadFile(path)
+	got, err := os.ReadFile(envFile)
 	if err != nil {
-		t.Fatalf("read: %v", err)
+		t.Fatalf("read env capture: %v", err)
 	}
-	if !strings.Contains(string(data), "FAKE-TEST-TOKEN") {
-		t.Fatalf("expected the credential to be written for the run, got %s", data)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if perm := info.Mode().Perm(); perm&0o077 != 0 {
-		t.Fatalf("credential-bearing config is readable by other users: mode=%04o", perm)
-	}
-}
-
-// TestOpencodeWithdrawRemovesCredentialsAndFile is the other half of the
-// credential story: nothing the daemon injected may still be on disk when the
-// daemon's end-of-task `git add -A` runs.
-func TestOpencodeWithdrawRemovesCredentialsAndFile(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	injection, err := opencodeApplyWorkdirMCPConfig(dir, json.RawMessage(testMCPConfigWithSecret), slog.Default())
-	if err != nil {
-		t.Fatalf("apply: %v", err)
-	}
-	injection.withdraw(slog.Default())
-
-	path := filepath.Join(dir, opencodeWorkdirConfigName)
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		data, _ := os.ReadFile(path)
-		t.Fatalf("config the daemon created survived withdrawal (stat err = %v): %s", err, data)
-	}
-}
-
-// TestOpencodeWithdrawKeepsUnrelatedFileContents checks the narrower case: the
-// file pre-existed, so withdrawal removes the injected entry and leaves the file.
-func TestOpencodeWithdrawKeepsUnrelatedFileContents(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, opencodeWorkdirConfigName)
-	if err := os.WriteFile(path, []byte(`{"model":"anthropic/claude-sonnet-4-5"}`), 0o644); err != nil {
-		t.Fatalf("seed config: %v", err)
-	}
-
-	injection, err := opencodeApplyWorkdirMCPConfig(dir, json.RawMessage(testMCPConfigWithSecret), slog.Default())
-	if err != nil {
-		t.Fatalf("apply: %v", err)
-	}
-	injection.withdraw(slog.Default())
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
-	if strings.Contains(string(data), "FAKE-TEST-TOKEN") {
-		t.Fatalf("credential survived withdrawal: %s", data)
-	}
-	if got := string(readWorkdirConfig(t, dir)["model"]); got != `"anthropic/claude-sonnet-4-5"` {
-		t.Fatalf("withdrawal disturbed the user's key, got %s", got)
-	}
-	// A file the daemon only borrowed keeps the mode it arrived with.
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o644 {
-		t.Fatalf("original file mode was not restored: mode=%04o", perm)
-	}
-}
-
-func TestOpencodeApplyWorkdirMCPConfigNoopWithoutConfig(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	if _, err := opencodeApplyWorkdirMCPConfig(dir, nil, slog.Default()); err != nil {
-		t.Fatalf("apply: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, opencodeWorkdirConfigName)); !os.IsNotExist(err) {
-		t.Fatalf("expected no config file to be created, stat err = %v", err)
-	}
-}
-
-// TestOpencodeApplyWorkdirMCPConfigRefusesUnparsableFile pins the fail-loud
-// path. The file belongs to the agent or the user; overwriting one the daemon
-// cannot round-trip would destroy their settings silently.
-func TestOpencodeApplyWorkdirMCPConfigRefusesUnparsableFile(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, opencodeWorkdirConfigName)
-	garbage := []byte("{not json at all")
-	if err := os.WriteFile(path, garbage, 0o644); err != nil {
-		t.Fatalf("seed config: %v", err)
-	}
-
-	_, err := opencodeApplyWorkdirMCPConfig(dir, json.RawMessage(testMCPConfig), slog.Default())
-	if err == nil {
-		t.Fatal("expected an error for an unparsable config file")
-	}
-	if !strings.Contains(err.Error(), opencodeWorkdirConfigName) {
-		t.Fatalf("error should name the offending file, got %v", err)
-	}
-
-	after, readErr := os.ReadFile(path)
-	if readErr != nil {
-		t.Fatalf("read back: %v", readErr)
-	}
-	if string(after) != string(garbage) {
-		t.Fatalf("refused write still modified the file: %s", after)
+	if !strings.Contains(string(got), "probe") {
+		t.Fatalf("1.x lost its MCP env injection: %q", got)
 	}
 }
 
@@ -487,67 +347,6 @@ func TestOpencodeV1ArgvKeepsDirAndVariant(t *testing.T) {
 	}
 	if containsString(args, "anthropic/claude-sonnet-4-5#high") {
 		t.Fatalf("1.x must not fold the variant into the model, got %q", args)
-	}
-}
-
-// TestOpencodeV2MCPConfigIsPresentDuringRunAndGoneAfter covers the full
-// lifecycle through Execute: the servers have to be readable by OpenCode while
-// it runs, and off disk once the run ends so the daemon's end-of-task commit
-// cannot pick up the credentials.
-func TestOpencodeV2MCPConfigIsPresentDuringRunAndGoneAfter(t *testing.T) {
-	t.Parallel()
-
-	tempDir := t.TempDir()
-	seenFile := filepath.Join(tempDir, "seen.json")
-	fakePath := filepath.Join(tempDir, "opencode")
-	// Copy the config the CLI can see at launch, then emit a clean stream.
-	script := "#!/bin/sh\n" +
-		"cat > /dev/null\n" +
-		"if [ -f \"$PWD/opencode.json\" ]; then cp \"$PWD/opencode.json\" \"" + seenFile + "\"; fi\n" +
-		"printf '{\"type\":\"step_start\",\"sessionID\":\"ses_fake\",\"part\":{}}\\n'\n" +
-		"printf '{\"type\":\"step_finish\",\"sessionID\":\"ses_fake\",\"part\":{}}\\n'\n"
-	writeTestExecutable(t, fakePath, []byte(script))
-
-	workDir := t.TempDir()
-
-	backend, err := New("opencode", Config{
-		ExecutablePath: fakePath,
-		CLIVersion:     "opencode v2.0.10",
-		BuiltinRuntime: true,
-		Logger:         slog.Default(),
-	})
-	if err != nil {
-		t.Fatalf("new opencode backend: %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	session, err := backend.Execute(ctx, "prompt-ignored", ExecOptions{
-		Cwd:       workDir,
-		McpConfig: json.RawMessage(testMCPConfigWithSecret),
-		Timeout:   5 * time.Second,
-	})
-	if err != nil {
-		t.Fatalf("execute: %v", err)
-	}
-	go func() {
-		for range session.Messages {
-		}
-	}()
-	<-session.Result
-
-	seen, err := os.ReadFile(seenFile)
-	if err != nil {
-		t.Fatalf("the CLI never saw a workdir config: %v", err)
-	}
-	if !strings.Contains(string(seen), "FAKE-TEST-TOKEN") {
-		t.Fatalf("the CLI did not receive the MCP servers: %s", seen)
-	}
-
-	if _, err := os.Stat(filepath.Join(workDir, opencodeWorkdirConfigName)); !os.IsNotExist(err) {
-		left, _ := os.ReadFile(filepath.Join(workDir, opencodeWorkdirConfigName))
-		t.Fatalf("injected config outlived the run (stat err = %v): %s", err, left)
 	}
 }
 

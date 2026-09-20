@@ -199,18 +199,15 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 	// (agent, issue), and any agent- or user-written model / tools /
 	// permission settings in it must survive across runs.
 	//
-	// 2.x stopped honouring that env var, so the same payload has to go
-	// through the project config file after all. The write is scoped to the
-	// "mcp" key and preserves everything else in the file, which keeps the
-	// guarantee above intact — see opencodeApplyWorkdirMCPConfig.
-	var mcpInjection *opencodeWorkdirMCPInjection
+	// 2.x stopped honouring that env var, and the only channel it left puts the
+	// credentials in the agent's own working tree, where the agent can commit
+	// them. Such runs are refused rather than started without their servers —
+	// see ErrOpenCodeV2MCPUnsupported.
 	if usesV2 {
-		injection, err := opencodeApplyWorkdirMCPConfig(opts.Cwd, opts.McpConfig, b.cfg.Logger)
-		if err != nil {
+		if err := opencodeCheckMCPSupport(opts.McpConfig); err != nil {
 			cancel()
 			return nil, err
 		}
-		mcpInjection = injection
 	} else {
 		mcpContent, err := buildOpenCodeMCPConfigContent(opts.McpConfig)
 		if err != nil {
@@ -242,13 +239,11 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		mcpInjection.withdraw(b.cfg.Logger)
 		cancel()
 		return nil, fmt.Errorf("opencode stdout pipe: %w", err)
 	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		mcpInjection.withdraw(b.cfg.Logger)
 		cancel()
 		return nil, fmt.Errorf("opencode stdin pipe: %w", err)
 	}
@@ -258,7 +253,6 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 
 	if err := startOwnedProcessTree(cmd, b.cfg.Logger); err != nil {
 		closeStdin()
-		mcpInjection.withdraw(b.cfg.Logger)
 		cancel()
 		return nil, fmt.Errorf("start opencode: %w", err)
 	}
@@ -337,11 +331,6 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 		exitErr := cmd.Wait()
 		close(procDone)
 		releaseProcessGroup(cmd)
-		// The process is gone, so nothing can rewrite the config underneath this.
-		// Take the injected MCP entries back out of the workdir before the daemon
-		// runs its end-of-task steps: in local-directory mode that workdir is the
-		// user's own checkout and `git add -A` would commit the credentials.
-		mcpInjection.withdraw(b.cfg.Logger)
 		duration := time.Since(startTime)
 
 		// Wait closes the process pipes, so a prompt write still blocked when
