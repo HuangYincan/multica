@@ -591,8 +591,6 @@ func TestPlatformSkillCoversPlatformContracts(t *testing.T) {
 				"multica squad member set-role",
 				"mention://squad/<squad-id>",
 				"recording squad activity",
-				"four ordered blocks",
-				"Leader Identity Reminder, always last",
 				// The debugging entry point must stay a bounded two-step read
 				// (MUL-5442): a roots-only scan alone never returns reply
 				// bodies, where mention triggers and failure reasons live.

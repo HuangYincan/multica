@@ -52,42 +52,6 @@ func UnescapeBackslashEscapes(s string) string {
 	return b.String()
 }
 
-// SanitizeNameForBriefMarkdown turns a possibly-multiline display name into a
-// single-line, plain-text token that is safe to embed inside markdown inline
-// constructs (for example, `**name**`) in an agent brief. Briefs are loaded as
-// trusted instructions, so user-controlled names must not be able to introduce
-// headings, lists, or close the surrounding inline construct.
-//
-// CR/LF and other whitespace control bytes collapse to a single space; other
-// C0 controls and DEL are dropped; markdown structural characters that have
-// meaning in inline context (`*`, `_`, backtick, `\`, `[`, `]`, `<`) are
-// backslash-escaped. Trailing whitespace is trimmed. This is the shared
-// implementation of the MUL-2645 brief-name boundary.
-func SanitizeNameForBriefMarkdown(name string) string {
-	var b strings.Builder
-	b.Grow(len(name))
-	prevSpace := false
-	for _, r := range name {
-		switch {
-		case r == '\r' || r == '\n' || r == '\t' || r == '\v' || r == '\f':
-			if !prevSpace && b.Len() > 0 {
-				b.WriteByte(' ')
-				prevSpace = true
-			}
-		case r < 0x20 || r == 0x7f:
-			continue
-		case r == '*' || r == '_' || r == '`' || r == '\\' || r == '[' || r == ']' || r == '<':
-			b.WriteByte('\\')
-			b.WriteRune(r)
-			prevSpace = false
-		default:
-			b.WriteRune(r)
-			prevSpace = false
-		}
-	}
-	return strings.TrimSpace(b.String())
-}
-
 // sanitizeJSONMaxDepth bounds SanitizeJSONForPostgres's recursion. Task tool
 // input is a handful of levels deep in practice; anything past this is either
 // pathological or hostile, and is dropped rather than walked so a deeply

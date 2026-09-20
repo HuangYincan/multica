@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/pkg/agent"
 )
 
@@ -58,10 +57,39 @@ const (
 // deterministically without having to run on every target OS.
 var runtimeGOOS = runtime.GOOS
 
-// sanitizeNameForBriefMarkdown preserves the package-local MUL-2645 helper
-// while sharing its implementation with every brief that embeds agent names.
+// sanitizeNameForBriefMarkdown turns a possibly-multiline display name into a
+// single-line, plain-text token that is safe to embed inside markdown inline
+// constructs (e.g. `**%s**`) in the agent brief. The brief is loaded as
+// trusted instructions, so user-controlled name fields must not be able to
+// introduce headings, lists, or close the surrounding bold span.
+//
+// CR/LF and other whitespace control bytes collapse to a single space; other
+// C0 controls and DEL are dropped; markdown structural characters that have
+// meaning in inline context (`*`, `_`, “ ` “, `\`, `[`, `]`, `<`) are
+// backslash-escaped. Trailing whitespace is trimmed.
 func sanitizeNameForBriefMarkdown(name string) string {
-	return util.SanitizeNameForBriefMarkdown(name)
+	var b strings.Builder
+	b.Grow(len(name))
+	prevSpace := false
+	for _, r := range name {
+		switch {
+		case r == '\r' || r == '\n' || r == '\t' || r == '\v' || r == '\f':
+			if !prevSpace && b.Len() > 0 {
+				b.WriteByte(' ')
+				prevSpace = true
+			}
+		case r < 0x20 || r == 0x7f:
+			continue
+		case r == '*' || r == '_' || r == '`' || r == '\\' || r == '[' || r == ']' || r == '<':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+			prevSpace = false
+		default:
+			b.WriteRune(r)
+			prevSpace = false
+		}
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // sanitizeEmailForBrief returns the email verbatim when it is safe to embed
