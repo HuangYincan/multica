@@ -457,19 +457,32 @@ func writeRepositories(b *strings.Builder, ctx TaskContextForEnv) {
 		b.WriteString("\nA repository that starts from a branch is already checked out there — do not pass `--ref` to get back to it. ")
 		b.WriteString("Deliver to the same line: open pull requests with `gh pr create --base <that-branch>`. ")
 		b.WriteString("If what it starts from is a tag or a commit rather than a branch, treat it as a starting point only and confirm the target branch before opening a pull request.\n")
-		// The starting point above is the project's CURRENT setting, read when
-		// this run was claimed. A resumed task can outlive a change to it: the
-		// checkout is kept as it was, holding work branched off the OLD value,
-		// while this section now names the new one. Retargeting on that basis
-		// would deliver the old line's work into the new one — and it would
-		// break the promise the edit dialog makes, that work already underway
-		// keeps the branch it started on.
-		//
-		// The checkout itself is the authority, and it already says so:
-		// `repo checkout` reports when it kept an existing checkout, and names
-		// the branch it is on.
-		b.WriteString("\nIf `multica repo checkout` reports that it KEPT an existing checkout, you are continuing work that began earlier — possibly before this starting point was last changed. ")
-		b.WriteString("Deliver that work to the branch it actually started from, which the checkout names, not to the one listed above; ask if you cannot tell which that is.\n")
+	}
+	// Stated for ANY repo, pinned or not, because it protects work that began
+	// under a setting this brief can no longer see. A project cleared back to
+	// its default branch renders no starting point at all, yet a task resumed
+	// afterwards still holds a checkout cut from the old one — so gating this
+	// on `pinned` would drop the warning exactly where the mismatch is
+	// invisible.
+	//
+	// What it must NOT do is name a source for the original target. A kept
+	// checkout reports the branch the worktree is ON, which is the task's own
+	// `agent/...` branch — the HEAD of a pull request, never its base. Nothing
+	// in the checkout result carries the ref that branch was cut from. Telling
+	// the agent to read the target "from the checkout" produces a base equal
+	// to the head; the honest instruction is to keep the target the work
+	// already had, and to ask when nothing states it.
+	if len(ctx.Repos) > 0 {
+		b.WriteString("\nIf `multica repo checkout` reports that it KEPT an existing checkout, you are continuing work that began earlier — possibly before this project was last reconfigured. ")
+		b.WriteString("The branch it names is the branch your work sits ON: the head of a pull request, never its base. It does not record where that work was meant to land. ")
+		b.WriteString("Keep delivering where this work was already going — the base of its existing pull request, or the target the task states — and ask if neither settles it.")
+		if pinned {
+			// Only meaningful when something IS listed above. With the
+			// starting point cleared there is nothing to be retargeted to,
+			// and the sentence would point at a line that is not there.
+			b.WriteString(" Do not retarget it to a starting point listed above: that is the project's current setting, which may have changed since this work began.")
+		}
+		b.WriteString("\n")
 	}
 	b.WriteString("\n")
 }
