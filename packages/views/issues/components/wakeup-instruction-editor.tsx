@@ -11,6 +11,11 @@ import type { IssueWakeup } from "@multica/core/types";
 import { Button } from "@multica/ui/components/ui/button";
 import { Textarea } from "@multica/ui/components/ui/textarea";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@multica/ui/components/ui/tooltip";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -26,15 +31,34 @@ export function WakeupInstructionEditor({
   issueId,
   wakeupId,
   disabled = false,
+  triggerStyle = "text",
 }: {
   workspaceId: string;
   issueId: string;
   wakeupId: string;
   disabled?: boolean;
+  triggerStyle?: "text" | "icon";
 }) {
   const { t } = useT("issues");
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const label = t(($) => $.wakeups.edit_instruction);
+  const trigger = (
+    <DialogTrigger
+      render={
+        <Button
+          variant="ghost"
+          size={triggerStyle === "icon" ? "icon" : "sm"}
+          className={triggerStyle === "icon" ? "size-11 text-muted-foreground" : undefined}
+          disabled={disabled}
+          aria-label={label}
+        />
+      }
+    >
+      <Pencil className="size-3.5" aria-hidden="true" />
+      {triggerStyle === "text" && label}
+    </DialogTrigger>
+  );
   return (
     <Dialog
       open={open}
@@ -42,12 +66,12 @@ export function WakeupInstructionEditor({
         if (!saving) setOpen(next);
       }}
     >
-      <DialogTrigger
-        render={<Button variant="ghost" size="sm" disabled={disabled} />}
-      >
-        <Pencil className="size-3.5" aria-hidden="true" />
-        {t(($) => $.wakeups.edit_instruction)}
-      </DialogTrigger>
+      {triggerStyle === "icon" ? (
+        <Tooltip>
+          <TooltipTrigger render={trigger} />
+          <TooltipContent>{label}</TooltipContent>
+        </Tooltip>
+      ) : trigger}
       <DialogContent className="sm:max-w-xl" showCloseButton={!saving}>
         <DialogHeader>
           <DialogTitle>{t(($) => $.wakeups.edit_instruction)}</DialogTitle>

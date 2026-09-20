@@ -184,9 +184,9 @@ function WakeupListRow({
           <span className="text-muted-foreground">{text.runState()}</span>
         )}
       </TableCell>
-      <TableCell className="pr-4">
+      <TableCell className="w-px">
         <div
-          className="flex justify-end"
+          className="flex items-center justify-end"
           title={
             !row.can_manage
               ? t(($) => $.wakeups.read_only)
@@ -195,7 +195,6 @@ function WakeupListRow({
                 : undefined
           }
         >
-          <WakeupInstructionEditor workspaceId={wsId} issueId={row.issue_id} wakeupId={row.id} disabled={busy || !row.can_manage} />
           <WakeupControl
             wakeup={row}
             task={row.task ?? undefined}
@@ -224,12 +223,22 @@ function WakeupListRow({
           />
         </div>
       </TableCell>
+      <TableCell className="w-px pl-0 pr-4">
+        <WakeupInstructionEditor
+          workspaceId={wsId}
+          issueId={row.issue_id}
+          wakeupId={row.id}
+          disabled={busy || !row.can_manage}
+          triggerStyle="icon"
+        />
+      </TableCell>
     </TableRow>
   );
 }
 
 export function WorkspaceWakeups() {
   const { t } = useT("autopilots");
+  const { t: ti } = useT("issues");
   const wsId = useWorkspaceId();
   const [filters, setFilters] = useState<WorkspaceWakeupFilters>({
     scope: "active",
@@ -473,8 +482,13 @@ export function WorkspaceWakeups() {
                 <TableHead>{t(($) => $.wakeups.trigger)}</TableHead>
                 <TableHead>{t(($) => $.wakeups.next)}</TableHead>
                 <TableHead>{t(($) => $.wakeups.wakeup_run)}</TableHead>
-                <TableHead className="pr-4 text-right">
+                <TableHead className="w-px pr-4 text-right">
                   {t(($) => $.wakeups.enabled)}
+                </TableHead>
+                <TableHead className="w-px pl-0 pr-4">
+                  <span className="sr-only">
+                    {ti(($) => $.wakeups.edit_instruction)}
+                  </span>
                 </TableHead>
               </TableRow>
             </TableHeader>
