@@ -584,6 +584,8 @@ type Daemon struct {
 	// Negotiated from heartbeat acknowledgements or a server-originated steer
 	// hint. Until then a new daemon must not poll an older server's missing API.
 	taskSteerServerSupported atomic.Bool
+	taskSteerWakeMu          sync.Mutex
+	taskSteerWakeups         map[string]map[chan struct{}]struct{} // runtime_id -> active provider sessions
 
 	cancelFunc context.CancelFunc // set by Run(); called by triggerRestart
 	rootCtx    context.Context    // set by Run(); used by long-running recoveries that must survive per-runtime ctx cancellation
@@ -733,6 +735,7 @@ func New(cfg Config, logger *slog.Logger) *Daemon {
 		runtimeGoneInflight:       make(map[string]struct{}),
 		pendingWorkInflight:       make(map[string]struct{}),
 		pendingWorkLastRun:        make(map[string]time.Time),
+		taskSteerWakeups:          make(map[string]map[chan struct{}]struct{}),
 		reregisterNextAttempt:     make(map[string]time.Time),
 		reregisterLastCompletedAt: make(map[string]time.Time),
 		cancelPollInterval:        5 * time.Second,
@@ -4636,9 +4639,10 @@ func (d *Daemon) handlePendingWorkHint(runtimeID, kind string) {
 		// Receiving this server-owned hint is itself positive feature
 		// negotiation; old servers cannot emit the new kind.
 		d.taskSteerServerSupported.Store(true)
-		// Active sessions recover steering work through their short durable poll.
-		// The hint only removes latency for older generic pending-work consumers;
-		// it must not turn a comment into a heartbeat/claim cycle here.
+		d.signalTaskSteerWakeups(runtimeID)
+		// Wake active provider sessions directly. Their low-frequency durable
+		// poll remains only as recovery if this best-effort hint is lost; this
+		// kind must not turn into a generic heartbeat/claim cycle here.
 		return
 	}
 
@@ -4708,6 +4712,38 @@ func (d *Daemon) handlePendingWorkHint(runtimeID, kind string) {
 	}
 	d.logger.Debug("pending work hint served", "runtime_id", runtimeID, "kind", kind)
 	d.handleHeartbeatActions(ctx, runtimeID, resp)
+}
+
+func (d *Daemon) registerTaskSteerWakeup(runtimeID string) (chan struct{}, func()) {
+	wake := make(chan struct{}, 1)
+	d.taskSteerWakeMu.Lock()
+	if d.taskSteerWakeups == nil {
+		d.taskSteerWakeups = make(map[string]map[chan struct{}]struct{})
+	}
+	if d.taskSteerWakeups[runtimeID] == nil {
+		d.taskSteerWakeups[runtimeID] = make(map[chan struct{}]struct{})
+	}
+	d.taskSteerWakeups[runtimeID][wake] = struct{}{}
+	d.taskSteerWakeMu.Unlock()
+	return wake, func() {
+		d.taskSteerWakeMu.Lock()
+		delete(d.taskSteerWakeups[runtimeID], wake)
+		if len(d.taskSteerWakeups[runtimeID]) == 0 {
+			delete(d.taskSteerWakeups, runtimeID)
+		}
+		d.taskSteerWakeMu.Unlock()
+	}
+}
+
+func (d *Daemon) signalTaskSteerWakeups(runtimeID string) {
+	d.taskSteerWakeMu.Lock()
+	defer d.taskSteerWakeMu.Unlock()
+	for wake := range d.taskSteerWakeups[runtimeID] {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // handleModelList resolves the provider's supported models (via static
@@ -8756,7 +8792,8 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// Shared across the resume-retry below so the retry's transcript rows
 	// keep ascending seq values for the same task.
 	var msgSeq atomic.Int32
-	result, tools, err := d.executeAndDrain(ctx, backend, prompt, execOpts, taskLog, task.ID, env.CodexHome, &msgSeq)
+	execCtx := context.WithValue(ctx, taskSteerRuntimeIDContextKey{}, task.RuntimeID)
+	result, tools, err := d.executeAndDrain(execCtx, backend, prompt, execOpts, taskLog, task.ID, env.CodexHome, &msgSeq)
 	if err != nil {
 		return TaskResult{}, err
 	}
@@ -8812,7 +8849,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		}
 		freshPrompt := BuildPrompt(task, provider, promptOptions...)
 
-		retryResult, retryTools, retryErr := d.executeAndDrain(ctx, backend, freshPrompt, execOpts, taskLog, task.ID, env.CodexHome, &msgSeq)
+		retryResult, retryTools, retryErr := d.executeAndDrain(execCtx, backend, freshPrompt, execOpts, taskLog, task.ID, env.CodexHome, &msgSeq)
 		if retryErr != nil {
 			taskLog.Error("fresh session also failed to start; keeping the original poisoned result", "error", retryErr)
 		} else if retryResult.Status != "completed" && retryResult.SessionID == "" {
@@ -9267,6 +9304,8 @@ func freshSessionMayHelp(errText string) bool {
 // messages and is owned by the caller so a same-task retry continues the
 // sequence instead of restarting at 1 — the server orders the transcript by
 // seq alone, and duplicate seqs would interleave the two attempts' rows.
+type taskSteerRuntimeIDContextKey struct{}
+
 func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, prompt string, opts agent.ExecOptions, taskLog *slog.Logger, taskID, codexHome string, msgSeq *atomic.Int32) (agent.Result, int32, error) {
 	phaseRecorder := taskPhaseRecorderFromContext(ctx)
 	// Wrap the caller's ctx so the idle watchdog (below) can interrupt both
@@ -9295,23 +9334,27 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 	taskLog.Debug("backend started, draining messages")
 
 	// Pull steering instructions while this exact provider session is alive.
-	// The database claim is the ordering/idempotency boundary; the short poll is
-	// also the recovery path when a best-effort WS pending-work hint is lost.
+	// Server hints wake matching runtime sessions immediately; the low-frequency
+	// poll is only a recovery path when a best-effort hint is lost.
 	steerCtx, cancelSteer := context.WithCancel(agentCtx)
 	steerDone := make(chan struct{})
 	if session.Steer != nil {
+		runtimeID, _ := ctx.Value(taskSteerRuntimeIDContextKey{}).(string)
+		steerWake, unregisterSteerWake := d.registerTaskSteerWakeup(runtimeID)
+		defer unregisterSteerWake()
 		go func() {
 			defer close(steerDone)
-			ticker := time.NewTicker(500 * time.Millisecond)
+			ticker := time.NewTicker(15 * time.Second)
 			defer ticker.Stop()
 			for {
 				if !d.taskSteerServerSupported.Load() {
 					select {
 					case <-steerCtx.Done():
 						return
+					case <-steerWake:
 					case <-ticker.C:
-						continue
 					}
+					continue
 				}
 				claimCtx, cancel := context.WithTimeout(steerCtx, 3*time.Second)
 				steer, claimErr := d.client.ClaimCommentSteer(claimCtx, taskID)
@@ -9342,6 +9385,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 				select {
 				case <-steerCtx.Done():
 					return
+				case <-steerWake:
 				case <-ticker.C:
 				}
 			}

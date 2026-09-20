@@ -96,9 +96,16 @@ func TestHandlePendingWorkHint_TaskSteerUsesActiveSessionPoll(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
+	wake, unregister := d.registerTaskSteerWakeup("rt-1")
+	defer unregister()
 	d.handlePendingWorkHint("rt-1", protocol.PendingWorkKindTaskSteer)
 	if !d.taskSteerServerSupported.Load() {
 		t.Fatal("task steer hint did not negotiate server support")
+	}
+	select {
+	case <-wake:
+	case <-time.After(time.Second):
+		t.Fatal("task steer hint did not wake the active provider session")
 	}
 
 	if got := atomic.LoadInt32(calls); got != 0 {
