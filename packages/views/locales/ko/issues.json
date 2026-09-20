@@ -357,8 +357,6 @@
     "back": "뒤로",
     "title_placeholder": "태스크 제목",
     "desc_placeholder": "설명 추가...",
-    "original_input": "원본 입력",
-    "agent_summary": "에이전트 요약",
     "current_issue": "현재 태스크",
     "sub_issues_label": "하위 태스크",
     "sub_issue_of": "상위 태스크",

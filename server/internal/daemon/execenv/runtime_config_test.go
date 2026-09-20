@@ -86,23 +86,8 @@ func TestIssueWorkflowCarriesSourceContextPrecedenceOnce(t *testing.T) {
 	if count := strings.Count(out, rule); count != 1 {
 		t.Fatalf("source-context precedence rule count = %d, want 1", count)
 	}
-	if !strings.Contains(out, "current issue's `original_input` (when present), title, description, and comments are authoritative task instructions") {
+	if !strings.Contains(out, "current issue title, description, and comments are authoritative task instructions") {
 		t.Fatal("source-context rule does not identify the current issue as authoritative")
-	}
-}
-
-func TestIssueWorkflowCarriesOriginalInputPrecedenceOnce(t *testing.T) {
-	t.Parallel()
-	out := buildMetaSkillContent("claude", TaskContextForEnv{IssueID: "issue-1"})
-	const rule = "If the issue JSON contains `original_input`"
-	if count := strings.Count(out, rule); count != 1 {
-		t.Fatalf("original-input precedence rule count = %d, want 1", count)
-	}
-	if !strings.Contains(out, "it is the authoritative user request captured by Quick Create") {
-		t.Fatal("original-input rule does not identify the captured request as authoritative")
-	}
-	if !strings.Contains(out, "if they conflict, follow `original_input`") {
-		t.Fatal("original-input rule does not define precedence over the generated description")
 	}
 }
 

@@ -815,25 +815,6 @@ describe("IssueDetail (shared)", () => {
     expect(contentEditorMounts.count).toBe(1);
   });
 
-  it("renders quick-create original input as plain text above the agent summary", async () => {
-    const originalInput =
-      "Investigate `command code` limits.\nKeep [@Eve](mention://agent/agent-1) verbatim.";
-    mockApiObj.getIssue.mockResolvedValue({ ...mockIssue, original_input: originalInput });
-
-    renderIssueDetail();
-
-    const label = await screen.findByRole("heading", { name: "Original input" });
-    const originalInputSection = label.closest("section");
-    expect(originalInputSection).not.toBeNull();
-    expect(originalInputSection).toHaveTextContent("Investigate `command code` limits.");
-    expect(originalInputSection).toHaveTextContent(
-      "Keep [@Eve](mention://agent/agent-1) verbatim.",
-    );
-    expect(within(originalInputSection!).queryByRole("link")).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Agent summary" })).toBeInTheDocument();
-    expect(screen.getByDisplayValue("Add JWT auth to the backend")).toBeInTheDocument();
-  });
-
   it("reconciles a cached list snapshot so source context appears on first entry", async () => {
     const sourceContext: NonNullable<Issue["source_context"]> = {
       id: "context-1",

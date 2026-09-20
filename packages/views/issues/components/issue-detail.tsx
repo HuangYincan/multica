@@ -68,8 +68,15 @@ import { formatDateOnly, isPastDateOnly } from "@multica/core/issues/date";
 import { useUpdateIssue } from "@multica/core/issues/mutations";
 import { toast } from "sonner";
 import { errorCode } from "@multica/core/api";
-import { StatusIcon, PriorityIcon, StatusPicker, PriorityPicker, StagePicker, StartDatePicker, DueDatePicker, AssigneePicker, LabelPicker } from ".";
-import { maxSiblingStage } from "./pickers/stage-picker";
+import { StatusIcon } from "./status-icon";
+import { PriorityIcon } from "./priority-icon";
+import { StatusPicker } from "./pickers/status-picker";
+import { PriorityPicker } from "./pickers/priority-picker";
+import { StagePicker, maxSiblingStage } from "./pickers/stage-picker";
+import { StartDatePicker } from "./pickers/start-date-picker";
+import { DueDatePicker } from "./pickers/due-date-picker";
+import { AssigneePicker } from "./pickers/assignee-picker";
+import { LabelPicker } from "./pickers/label-picker";
 import { CustomPropertyValueEditor, CustomPropertyValueDisplay } from "./pickers/custom-property-picker";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { IssueActionsDropdown, useIssueActions, IssueActionsContextMenu, IssueContextMenuProvider } from "../actions";
@@ -1363,11 +1370,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // list row must not masquerade as a hydrated issue detail.
   const { data: issue = null, isLoading: issueLoading, refetch: refetchIssue } = useQuery({
     ...issueDetailOptions(wsId, id),
-    // List rows and issue-created realtime payloads intentionally omit
-    // detail-only source context and original input. They can still seed this
-    // query via initialData, so always reconcile with the authoritative detail
-    // endpoint when the detail view mounts. Without this, the global Infinity
-    // staleTime hides those fields until a full page refresh.
+    // List rows and issue-created realtime payloads intentionally omit the
+    // detail-only source-context snapshot. They can still seed this query via
+    // initialData, so always reconcile with the authoritative detail endpoint
+    // when the detail view mounts. Without this, the global Infinity staleTime
+    // hides source context until a full page refresh.
     refetchOnMount: "always",
     initialData: () => {
       const cached = allIssues.find((i) => i.id === id);
@@ -3040,23 +3047,6 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             />
           )}
 
-          {issue.original_input && (
-            <section
-              aria-labelledby={`original-input-${id}`}
-              className="mt-5 rounded-lg border border-border bg-muted/40 p-4"
-            >
-              <h2
-                id={`original-input-${id}`}
-                className="text-caption font-medium text-muted-foreground"
-              >
-                {t(($) => $.detail.original_input)}
-              </h2>
-              <p className="mt-2 whitespace-pre-wrap break-words text-body text-foreground">
-                {issue.original_input}
-              </p>
-            </section>
-          )}
-
           <div
             {...descDropZoneProps}
             {...descriptionAnnotations.captureProps}
@@ -3073,11 +3063,6 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
               }
             }}
           >
-            {issue.original_input && (
-              <h2 className="mb-2 text-caption font-medium text-muted-foreground">
-                {t(($) => $.detail.agent_summary)}
-              </h2>
-            )}
             {descriptionAnnotations.popup}
             <div data-comment-content={descriptionSourceId}>
               <ContentEditor

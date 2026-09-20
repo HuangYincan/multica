@@ -385,8 +385,13 @@ func TestIssueCommentUpdateCommandRegistration(t *testing.T) {
 	if cmd != issueCommentUpdateCmd {
 		t.Fatalf("found command = %q, want issue comment update", cmd.CommandPath())
 	}
-	if !strings.Contains(cmd.Long, "agent-trigger behavior") {
-		t.Fatalf("long help should disclose edit side effects, got %q", cmd.Long)
+	for _, anchor := range []string{
+		"merge your change into it before retrying",
+		"re-enqueues every agent the new body mentions",
+	} {
+		if !strings.Contains(cmd.Long, anchor) {
+			t.Fatalf("long help should carry the conflict rule and the re-trigger side effect (missing %q), got %q", anchor, cmd.Long)
+		}
 	}
 	for _, name := range []string{"content", "content-stdin", "content-file", "allow-external-file", "expected-revision", "output"} {
 		if cmd.Flags().Lookup(name) == nil {

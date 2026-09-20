@@ -197,24 +197,6 @@ describe("IssueSchema (via ListIssuesResponseSchema)", () => {
     expect(parsed.issues[0]?.id).toBe(baseIssue.id);
     expect(parsed.issues[0]?.status_name).toBeUndefined();
   });
-  it("keeps detail-only original input without requiring it from older servers", () => {
-    const original = "调查 `command code` 的周限。\n不要改成 Claude Code。";
-    const parsed = ListIssuesResponseSchema.parse({
-      issues: [{ ...baseIssue, original_input: original }],
-      total: 1,
-    });
-    expect(parsed.issues[0]?.original_input).toBe(original);
-
-    const legacy = ListIssuesResponseSchema.parse({ issues: [baseIssue], total: 1 });
-    expect(legacy.issues[0]?.original_input).toBeUndefined();
-
-    const malformed = ListIssuesResponseSchema.parse({
-      issues: [{ ...baseIssue, original_input: { text: original } }],
-      total: 1,
-    });
-    expect(malformed.issues[0]?.id).toBe(baseIssue.id);
-    expect(malformed.issues[0]?.original_input).toBeUndefined();
-  });
   it("keeps the issue while independently dropping a malformed source context", () => {
     const parsed = ListIssuesResponseSchema.parse({
       issues: [{ ...baseIssue, source_context: { snapshot: "bad" } }],
@@ -2226,6 +2208,23 @@ describe("issue status catalog schemas", () => {
 });
 
 describe("TaskMessageListSchema", () => {
+  it("preserves call IDs and tolerates old or malformed optional identity", () => {
+    const base = { task_id: "task-1", seq: 1, type: "tool_result", output: "ok" };
+    const parsed = parseWithFallback<{ call_id?: string; output?: string }[]>(
+      [
+        { ...base, call_id: "execution:A" },
+        base,
+        { ...base, call_id: null },
+        { ...base, call_id: 42 },
+        { ...base, call_id: {} },
+      ],
+      TaskMessageListSchema, [], { endpoint: "GET /api/tasks/:id/messages" },
+    );
+    expect(parsed).toHaveLength(5);
+    expect(parsed.map((m) => m.call_id)).toEqual(["execution:A", undefined, undefined, undefined, undefined]);
+    expect(parsed.every((m) => m.output === "ok")).toBe(true);
+  });
+
   const row = { task_id: "task-1", issue_id: "issue-1", seq: 1, type: "tool_result", output: "log line" };
 
   // The whole point of the field: a server that never sends it is saying

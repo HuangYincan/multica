@@ -361,8 +361,6 @@
     "back": "Back",
     "title_placeholder": "Issue title",
     "desc_placeholder": "Add description...",
-    "original_input": "Original input",
-    "agent_summary": "Agent summary",
     "current_issue": "This issue",
     "sub_issues_label": "Sub-issues",
     "sub_issue_of": "Sub-issue of",

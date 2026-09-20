@@ -359,11 +359,7 @@ export function TimelineList({
   const ListHeader = (
     <View>
       <IssueHeaderCard issue={issue} />
-      <IssueDescription
-        issueId={issue.id}
-        description={issue.description}
-        originalInput={issue.original_input}
-      />
+      <IssueDescription issueId={issue.id} description={issue.description} />
       <IssueReactionRow issue={issue} />
       <View className="px-4 pt-4 pb-2 border-t border-border">
         <Text className="text-xs uppercase tracking-wider text-muted-foreground font-medium">

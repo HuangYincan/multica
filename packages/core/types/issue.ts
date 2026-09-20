@@ -215,11 +215,6 @@ export interface Issue {
    * created_at/updated_at values are second-precision; parse before comparing.
    */
   last_activity_at?: string | null;
-  /**
-   * Authoritative user wording for a Quick Create issue. Detail-only and
-   * immutable; absent for other issue origins and older servers.
-   */
-  original_input?: string;
   /** Present only on issue detail responses for issues created from a comment. */
   source_context?: IssueSourceContext;
 }

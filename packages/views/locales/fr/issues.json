@@ -361,8 +361,6 @@
     "back": "Retour",
     "title_placeholder": "Titre de la tâche",
     "desc_placeholder": "Ajouter une description...",
-    "original_input": "Saisie d’origine",
-    "agent_summary": "Résumé de l’agent",
     "current_issue": "Cette tâche",
     "sub_issues_label": "Sous-tâches",
     "sub_issue_of": "Sous-tâche de",

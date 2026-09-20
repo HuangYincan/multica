@@ -357,8 +357,6 @@
     "back": "戻る",
     "title_placeholder": "タスクのタイトル",
     "desc_placeholder": "説明を追加...",
-    "original_input": "元の入力",
-    "agent_summary": "エージェントの要約",
     "current_issue": "現在のタスク",
     "sub_issues_label": "サブタスク",
     "sub_issue_of": "親タスク",
