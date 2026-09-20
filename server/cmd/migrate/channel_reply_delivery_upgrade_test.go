@@ -14,7 +14,8 @@ import (
 // A database that installed channel_reply_delivery before attempt_depth
 // existed must gain the column by upgrading, not by being rebuilt.
 //
-// The column was first added by editing migration 500 in place. Any database
+// The column was first added by editing the create-table migration in place.
+// Any database
 // that had already recorded 500 never saw the change, so every query touching
 // the column failed on exactly the deployments where the feature was already
 // installed — and a fresh rebuild passing said nothing about it. This runs the
@@ -51,7 +52,7 @@ func TestChannelReplyDeliveryAttemptDepthUpgradesAnInstalledTable(t *testing.T) 
 		t.Fatalf("set search path: %v", err)
 	}
 
-	// The table as migration 500 created it before 504 existed.
+	// The table as the create-table migration made it, before the column existed.
 	if _, err := conn.Exec(ctx, `
 		CREATE TABLE channel_reply_delivery (
 			turn_id UUID NOT NULL,
@@ -82,7 +83,7 @@ func TestChannelReplyDeliveryAttemptDepthUpgradesAnInstalledTable(t *testing.T) 
 		t.Fatalf("seed an installed row: %v", err)
 	}
 
-	upgrade, err := os.ReadFile("../../migrations/504_channel_reply_delivery_attempt_depth.up.sql")
+	upgrade, err := os.ReadFile("../../migrations/506_channel_reply_delivery_attempt_depth.up.sql")
 	if err != nil {
 		t.Fatalf("read the upgrade migration: %v", err)
 	}

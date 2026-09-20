@@ -16,7 +16,7 @@
 CREATE TABLE IF NOT EXISTS channel_reply_delivery (
     turn_id UUID NOT NULL,
     -- The attempt holding the turn most recently; diagnostics, never identity.
-    -- How far down the retry chain that attempt sits is added by migration 504,
+    -- How far down the retry chain that attempt sits is added by migration 506,
     -- which is also where a database created by this file gets it.
     task_id UUID NOT NULL,
     binding_id UUID NOT NULL,
