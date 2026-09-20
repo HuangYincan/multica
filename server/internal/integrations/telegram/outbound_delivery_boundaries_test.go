@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -616,5 +618,58 @@ func TestReview8545PostgresSweepReleasesTurnsSettledElsewhere(t *testing.T) {
 		if schedule.refs != 0 {
 			t.Fatalf("chat schedule %v still referenced after the sweep", key)
 		}
+	}
+}
+
+// The lease only means anything if a call made under it cannot outlive it.
+// The shared Bot API client allows 65s — fine for getUpdates long polling,
+// fatal for a delivery call, because a request that outlives its lease can
+// land after another process has taken the turn over and finished it.
+func TestDeliveryCallBudgetFitsTheLease(t *testing.T) {
+	if deliveryCallTimeout+deliveryRecordTimeout >= deliveryLeaseTTL {
+		t.Fatalf("one call (%s) plus recording its outcome (%s) does not fit inside the lease (%s): "+
+			"a delivery can still be talking to Telegram after losing the turn",
+			deliveryCallTimeout, deliveryRecordTimeout, deliveryLeaseTTL)
+	}
+}
+
+// A call that hangs must be cut off by its own budget rather than by the
+// client's, so the turn is released close to the lease instead of minutes past
+// it. Exercised with a short lease and a bot that never answers.
+func TestReview8545PostgresSlowCallIsCutOffInsideTheLease(t *testing.T) {
+	block := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-block:
+		case <-r.Context().Done():
+		}
+	}))
+	// Release the handler before closing the server: Close waits for handlers
+	// to return, and deferred calls run in reverse.
+	defer srv.Close()
+	defer close(block)
+
+	bot := &auditBot{}
+	o, _, _, e := review8545Setup(t, bot)
+	o.apiBase = srv.URL
+	o.client = srv.Client()
+	o.leaseTTL = 600 * time.Millisecond
+
+	done := make(chan time.Duration, 1)
+	go func() {
+		started := time.Now()
+		o.handleTaskMessage(telegramPartialEvent(e.TaskID, "a send that never comes back"))
+		done <- time.Since(started)
+	}()
+
+	select {
+	case took := <-done:
+		// The call budget is a third of the lease, so the frame has to give up
+		// well before the lease lapses — never at the client's 65s.
+		if took >= o.leaseTTL {
+			t.Fatalf("send held the turn for %s, past its %s lease", took, o.leaseTTL)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("send was still running long after its lease; the call budget is not bounding it")
 	}
 }

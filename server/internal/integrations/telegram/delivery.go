@@ -56,6 +56,14 @@ const (
 	// It is also the longest a dead process can block a turn, so it is not
 	// generous.
 	deliveryLeaseTTL = 30 * time.Second
+	// deliveryCallTimeout bounds one provider call made while holding a turn.
+	//
+	// The shared Bot API client allows 65s, which getUpdates needs for long
+	// polling but a delivery call must never take: a request that outlives the
+	// lease can land after another process has taken the turn over and
+	// finished it. The budget has to close, so one call plus recording its
+	// outcome stays inside the lease — see TestDeliveryCallBudgetFitsTheLease.
+	deliveryCallTimeout = 20 * time.Second
 	// deliveryRecordTimeout bounds the writes that record what Telegram did.
 	// They run on a context detached from the caller's: the deadline that
 	// killed a send must not also stop us recording that the send happened.
@@ -432,4 +440,18 @@ func (o *Outbound) leaseSeconds() float64 {
 		return o.leaseTTL.Seconds()
 	}
 	return deliveryLeaseTTL.Seconds()
+}
+
+// callContext bounds one provider call so it cannot outlive the lease that
+// authorises it. Paired with re-proving the lease immediately beforehand, this
+// is what makes "the turn was taken over mid-call" a budget question rather
+// than a race: the call cannot still be running when the lease lapses.
+func (o *Outbound) callContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	budget := deliveryCallTimeout
+	if o.leaseTTL > 0 && o.leaseTTL < deliveryLeaseTTL {
+		// Tests shorten the lease to exercise takeover; the call budget has to
+		// shrink with it or the relationship under test stops holding.
+		budget = o.leaseTTL / 3
+	}
+	return context.WithTimeout(ctx, budget)
 }

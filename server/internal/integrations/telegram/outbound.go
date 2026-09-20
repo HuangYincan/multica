@@ -455,6 +455,8 @@ func (o *Outbound) pushPartial(ctx context.Context, target *replyTarget, st *str
 		if !o.renewDelivery(ctx, lease) {
 			return
 		}
+		ctx, cancel := o.callContext(ctx)
+		defer cancel()
 		err := api.EditMessageText(ctx, editMessageTextParams{
 			ChatID:    st.chatID,
 			MessageID: msgID,
@@ -475,6 +477,8 @@ func (o *Outbound) pushPartial(ctx context.Context, target *replyTarget, st *str
 	if !o.claimSend(ctx, lease) {
 		return
 	}
+	ctx, cancel := o.callContext(ctx)
+	defer cancel()
 	var reply *replyParameters
 	if st.replyTo != 0 {
 		reply = &replyParameters{MessageID: st.replyTo, AllowSendingWithoutReply: true}
@@ -765,6 +769,14 @@ func (o *Outbound) sendNextTerminalRequest(ctx context.Context, reply *terminalR
 	if available.After(now) {
 		return terminalRequestResult{retryAt: available}
 	}
+	// Re-prove the turn here, not only at the top: waiting for schedule.mu can
+	// take arbitrarily long, and the call below must be authorised by a lease
+	// that is still ours at the moment it goes out.
+	if !o.renewDelivery(ctx, reply.lease) {
+		return terminalRequestResult{done: true}
+	}
+	ctx, cancel := o.callContext(ctx)
+	defer cancel()
 	api := newBotAPI(o.apiBase, reply.target.botToken, o.client)
 
 	if reply.streamedMessageID != 0 && !reply.placeholderEdited && !reply.fallbackFreshSend {
@@ -1083,6 +1095,11 @@ func (o *Outbound) deliverFailureNotice(ctx context.Context, reply *terminalRepl
 	if available := o.terminalAvailableAt(schedule, target.botKey, now); available.After(now) {
 		return terminalRequestResult{retryAt: available}
 	}
+	if !o.renewDelivery(ctx, lease) {
+		return terminalRequestResult{done: true}
+	}
+	ctx, cancel := o.callContext(ctx)
+	defer cancel()
 	api := newBotAPI(o.apiBase, target.botToken, o.client)
 
 	if messageID := lease.messageID(); messageID != 0 && !reply.fallbackFreshSend {
