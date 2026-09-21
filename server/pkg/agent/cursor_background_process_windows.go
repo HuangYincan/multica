@@ -40,40 +40,58 @@ type jobObjectBasicProcessIDList struct {
 	ProcessIdList             [1]uintptr
 }
 
+// cursorJobProcessIDListCapacity is the PID capacity of the first buffer handed
+// to QueryInformationJobObject. Tests shrink it so a small tree exercises the
+// grow-and-retry path.
+var cursorJobProcessIDListCapacity = 256
+
+// cursorOpenProcess is OpenProcess, replaceable in tests to make a live launch
+// member unopenable.
+var cursorOpenProcess = windows.OpenProcess
+
 // cursorJobProcessIDs lists the processes currently assigned to job. Every
 // descendant of a launch inherits its Job at creation and cannot leave it, so
 // this is the authoritative record of what belongs to the launch — unlike the
 // machine-wide parent-PID snapshot, which keeps a child's recorded parent after
 // that parent exits and lets a reused PID point at a process owned by someone
 // else (MUL-7417).
+//
+// The kernel writes as many PIDs as fit and reports the full count separately;
+// a short list can come back with ERROR_MORE_DATA or with success, and either
+// way it is not the membership. The query is retried with a larger buffer until
+// the two counts agree, and fails explicitly if they never do.
 func cursorJobProcessIDs(job windows.Handle) (map[uint32]struct{}, error) {
 	const word = int(unsafe.Sizeof(uintptr(0)))
 	const header = int(unsafe.Sizeof(jobObjectBasicProcessIDList{})) - word
-	capacity := 256
-	for attempt := 0; ; attempt++ {
+	capacity := cursorJobProcessIDListCapacity
+	if capacity < 1 {
+		capacity = 1
+	}
+	for attempt := 0; attempt < 8; attempt++ {
 		// A []uintptr backing array keeps the header pointer-aligned.
 		words := make([]uintptr, (header+word-1)/word+capacity)
 		size := uint32(len(words) * word)
 		err := windows.QueryInformationJobObject(job, windows.JobObjectBasicProcessIdList, uintptr(unsafe.Pointer(&words[0])), size, nil)
-		list := (*jobObjectBasicProcessIDList)(unsafe.Pointer(&words[0]))
-		if errors.Is(err, windows.ERROR_MORE_DATA) && attempt < 8 {
-			capacity = int(list.NumberOfAssignedProcesses) + 64
-			continue
-		}
-		if err != nil {
+		if err != nil && !errors.Is(err, windows.ERROR_MORE_DATA) {
 			return nil, fmt.Errorf("query job process ids: %w", err)
 		}
-		count := int(list.NumberOfProcessIdsInList)
-		if count > capacity {
-			count = capacity
+		list := (*jobObjectBasicProcessIDList)(unsafe.Pointer(&words[0]))
+		assigned, listed := int(list.NumberOfAssignedProcesses), int(list.NumberOfProcessIdsInList)
+		if listed > capacity {
+			listed = capacity
 		}
-		ids := unsafe.Slice(&list.ProcessIdList[0], capacity)[:count]
-		members := make(map[uint32]struct{}, count)
+		if err != nil || listed < assigned {
+			capacity = max(assigned+64, capacity*2)
+			continue
+		}
+		ids := unsafe.Slice(&list.ProcessIdList[0], capacity)[:listed]
+		members := make(map[uint32]struct{}, listed)
 		for _, id := range ids {
 			members[uint32(id)] = struct{}{}
 		}
 		return members, nil
 	}
+	return nil, errors.New("query job process ids: member list did not settle")
 }
 
 func captureCursorBackgroundProcess(cmd *exec.Cmd, pid int) (*cursorBackgroundProcess, error) {
@@ -97,21 +115,57 @@ func captureCursorBackgroundProcess(cmd *exec.Cmd, pid int) (*cursorBackgroundPr
 	}()
 	// open is only ever asked for a PID the launch Job listed. Membership is
 	// re-checked on the handle so a PID reused between the listing and the open
-	// is refused rather than claimed.
+	// is refused rather than claimed; that case is reported as
+	// errCursorBackgroundProcessInvalid, every other failure verbatim.
 	open := func(pid uint32) (heldProcess, error) {
-		h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, pid)
+		h, err := cursorOpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, pid)
 		if err != nil {
 			return heldProcess{}, err
 		}
 		created, err := cursorProcessCreated(h)
-		member, memberErr := cursorProcessInJob(h, root.job)
-		if err != nil || memberErr != nil || !member {
+		if err == nil {
+			var member bool
+			if member, err = cursorProcessInJob(h, root.job); err == nil && !member {
+				err = errCursorBackgroundProcessInvalid
+			}
+		}
+		if err != nil {
 			_ = windows.CloseHandle(h)
-			return heldProcess{}, errCursorBackgroundProcessInvalid
+			return heldProcess{}, err
 		}
 		p := heldProcess{pid, h, created}
 		held = append(held, p)
 		return p, nil
+	}
+	// openMember opens a listed member for the child walk. skip reports a PID
+	// proven to carry no launch member any more: the process behind it is
+	// outside the launch Job, or the Job no longer lists it. A live member
+	// this process cannot open — a DACL that denies PROCESS_SET_QUOTA or
+	// PROCESS_TERMINATE, say — is an error instead: left out of the tool Job
+	// it would outlive the tool's completion, so the capture fails and the
+	// caller takes its watchdog fallback.
+	openMember := func(pid uint32) (p heldProcess, skip bool, err error) {
+		for attempt := 0; ; attempt++ {
+			p, err = open(pid)
+			if err == nil {
+				return p, false, nil
+			}
+			if errors.Is(err, errCursorBackgroundProcessInvalid) {
+				return heldProcess{}, true, nil
+			}
+			current, listErr := cursorJobProcessIDs(root.job)
+			if listErr != nil {
+				return heldProcess{}, false, listErr
+			}
+			if _, listed := current[pid]; !listed {
+				return heldProcess{}, true, nil
+			}
+			// Still listed: either alive and unopenable, or exited and reused
+			// by another launch member in the meantime. One more open settles it.
+			if attempt == 1 {
+				return heldProcess{}, false, fmt.Errorf("open launch member %d: %w", pid, err)
+			}
+		}
 	}
 	// Membership of this launch's Job is the ownership proof: only processes
 	// descended from cmd can be in it, and a payload cannot name another
@@ -164,11 +218,11 @@ func captureCursorBackgroundProcess(cmd *exec.Cmd, pid int) (*cursorBackgroundPr
 			if claimed[childPID] || parents[childPID] != parent.pid {
 				continue
 			}
-			child, err := open(childPID)
+			child, skip, err := openMember(childPID)
 			if err != nil {
-				// Listed a moment ago, gone or reused now: there is nothing of
-				// ours behind this PID to claim. Skipping it keeps the rest of
-				// the subtree owned instead of failing the whole capture.
+				return nil, err
+			}
+			if skip {
 				continue
 			}
 			if child.created < parent.created {
