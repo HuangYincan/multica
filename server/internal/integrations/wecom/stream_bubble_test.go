@@ -470,6 +470,23 @@ func taskUUID(t *testing.T, name string) string {
 	return util.UUIDToString(mustParseTestUUID(t, name))
 }
 
+// has reports whether a session holds a round bound to this run. Tests use it
+// to check that an ending kept or released the round it belongs to; no
+// production path reads it.
+func (s *streamStore) has(sessionID pgtype.UUID, taskID string) bool {
+	if taskID == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range s.sessions[util.UUIDToString(sessionID)] {
+		if r.taskID == taskID {
+			return true
+		}
+	}
+	return false
+}
+
 // WeCom has no typing indicator, so the opening frame IS the receipt: an
 // unsealed think tag the client renders as its own animated dots. The answer
 // then replaces that bubble in place — same stream id, finish=true — rather

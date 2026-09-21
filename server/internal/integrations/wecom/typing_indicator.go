@@ -172,51 +172,6 @@ func NewTypingIndicator(cfg TypingIndicatorConfig) *TypingIndicatorManager {
 	}
 }
 
-// TypingIndicatorWiring reports which of the four dependencies a manager holds.
-//
-// Every one of them is optional and every one of them narrows the manager
-// silently when it is missing: nothing panics, nothing logs, Register still
-// subscribes, and the events still arrive — the closing frame just never gets
-// written, which the user sees as a bubble that spins until the server's
-// window runs out on it. That makes "is it wired" unfalsifiable from the
-// outside, and a boot path that drops one looks exactly like a healthy one.
-// This is the inspection point that makes it falsifiable.
-//
-// Languages is deliberately not among them: a manager without it still closes
-// every bubble, in the deployment's language rather than the reader's.
-type TypingIndicatorWiring struct {
-	// Senders is the live WebSocket registry. Without it no closing frame and
-	// no plain-message fallback can be written at all.
-	Senders bool
-	// Streams is the round store shared with the outbound subscriber. Without
-	// it every handler returns on its first line, so no bubble is ever closed
-	// by any ending.
-	Streams bool
-	// Tasks reads the run's input batch, which is what establishes that the
-	// question was asked over WeCom and not by the installer in their own
-	// browser. Without it every failed run this process holds no round for is
-	// refused instead of announced, so a run that outlived its bubble tells
-	// the user nothing. It also resolves an auto-retry clone to the round its
-	// parent opened, and recovers the session for a task:failed carrying none.
-	Tasks bool
-	// Deliveries finds the chat a failed run was asked in when no bubble is
-	// on file. Without it a run that fails after its bubble is gone (the
-	// process restarted mid-run, or the opening frame was refused) tells the
-	// user nothing.
-	Deliveries bool
-}
-
-// Wiring reports the dependencies this manager was built with. For boot-wiring
-// guards; it copies four booleans and hands out no references.
-func (m *TypingIndicatorManager) Wiring() TypingIndicatorWiring {
-	return TypingIndicatorWiring{
-		Senders:    m.senders != nil,
-		Streams:    m.streams != nil,
-		Tasks:      m.tasks != nil,
-		Deliveries: m.deliveries != nil,
-	}
-}
-
 // OnIngested paints a "working on it" bubble for the round this message
 // belongs to and records what it takes to come back and fill it in. A message
 // arriving while a round is still waiting for its run joins that round; one

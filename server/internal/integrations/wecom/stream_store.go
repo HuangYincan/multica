@@ -899,25 +899,6 @@ func (s *streamStore) take(ctx context.Context, sessionID pgtype.UUID, k roundKe
 	return roundTurn{}, false
 }
 
-// has reports whether a session holds a round bound to this run. A round is
-// opened by a message this adapter ingested and bound to this run by the
-// session's own task:queued, so an entry here is local proof the question was
-// asked in the room — the one case the failure notice's origin gate can decide without a
-// database (failureBelongsOnWecom).
-func (s *streamStore) has(sessionID pgtype.UUID, taskID string) bool {
-	if taskID == "" {
-		return false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, r := range s.sessions[util.UUIDToString(sessionID)] {
-		if r.taskID == taskID {
-			return true
-		}
-	}
-	return false
-}
-
 // holding reports whether this store has anything on file anywhere — a round,
 // painted or not, or a run still waiting for its bubble. It is the "nothing
 // here to close" test at the head of the two ending subscribers.
