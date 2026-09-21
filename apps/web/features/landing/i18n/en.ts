@@ -19,7 +19,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
     headlineLine1: "Your next 10 hires",
     headlineLine2: "won\u2019t be human.",
     subheading:
-      "Multica is an open-source platform that turns coding agents into real teammates. Assign tasks, track progress, compound skills \u2014 manage your human + agent workforce in one place.",
+      "Multica is a source-available platform that turns coding agents into real teammates. Assign tasks, track progress, compound skills \u2014 manage your human + agent workforce in one place.",
     cta: "Start free trial",
     downloadDesktop: "Download Desktop",
     talkToSales: "Talk to sales",
@@ -155,12 +155,13 @@ export function createEnDict(allowSignup: boolean): LandingDict {
   },
 
   openSource: {
-    label: "Open source",
-    headlineLine1: "Open source",
+    label: "Source available",
+    headlineLine1: "Source available",
     headlineLine2: "for all.",
     description:
-      "Multica is fully open source. Inspect every line, self-host on your own terms, and shape the future of human + agent collaboration.",
+      "Multica\u2019s source code is public. Inspect every line, self-host it for free, and shape the future of human + agent collaboration. Offering Multica to others as a hosted service requires a commercial license.",
     cta: "Star on GitHub",
+    licensingCta: "How licensing works \u2192",
     highlights: [
       {
         title: "Self-host anywhere",
@@ -192,12 +193,17 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       {
         question: "What coding agents does Multica support?",
         answer:
-          "Multica supports 26 coding tools out of the box: Antigravity, Claude Code, CodeBuddy, CodeArts, Codex, Copilot, Cursor, DeepSeek Harness, DevEco Code, Dim, Grok, Hermes, Kimi, Kiro CLI, MiniMax Code, Oh-My-Pi, OpenClaw, OpenCode, Pi, Qoder, Qoder CN, Qwen Code, QwenPaw, Reasonix, Trae CLI, and ZeroClaw. The daemon auto-detects whichever CLIs you already have installed and registers a runtime for each one. Since it's open source, you can also add your own backends.",
+          "Multica supports 26 coding tools out of the box: Antigravity, Claude Code, CodeBuddy, CodeArts, Codex, Copilot, Cursor, DeepSeek Harness, DevEco Code, Dim, Grok, Hermes, Kimi, Kiro CLI, MiniMax Code, Oh-My-Pi, OpenClaw, OpenCode, Pi, Qoder, Qoder CN, Qwen Code, QwenPaw, Reasonix, Trae CLI, and ZeroClaw. The daemon auto-detects whichever CLIs you already have installed and registers a runtime for each one. Since the source code is public, you can also add your own backends.",
       },
       {
         question: "Do I need to self-host, or is there a cloud version?",
         answer:
           "Both. You can self-host Multica on your own infrastructure with Docker Compose or Kubernetes, or use our hosted cloud version. Your data, your choice.",
+      },
+      {
+        question: "Can I use Multica commercially?",
+        answer:
+          "Yes. Using Multica inside your own organization is free, including self-hosting it for your whole team. You only need a commercial license to offer Multica to people outside your organization, for example as a hosted or managed service. The [licensing FAQ](/licensing) walks through common scenarios.",
       },
       {
         question:
@@ -218,14 +224,14 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       {
         question: "How many agents can I run?",
         answer:
-          "As many as your hardware supports. Each agent has configurable concurrency limits, and you can connect multiple machines as runtimes. There are no artificial caps in the open source version.",
+          "As many as your hardware supports. Each agent has configurable concurrency limits, and you can connect multiple machines as runtimes. There are no artificial caps when you self-host.",
       },
     ],
   },
 
   footer: {
     tagline:
-      "Project management for human + agent teams. Open source, self-hostable, built for the future of work.",
+      "Project management for human + agent teams. Source-available, self-hostable, built for the future of work.",
     cta: "Get started",
     groups: {
       product: {
@@ -251,7 +257,8 @@ export function createEnDict(allowSignup: boolean): LandingDict {
         label: "Company",
         links: [
           { label: "About", href: "/about" },
-          { label: "Open Source", href: "#open-source" },
+          { label: "Licensing", href: "/licensing" },
+          { label: "Privacy", href: "/privacy" },
           { label: "Contact Sales", href: "/contact-sales" },
           { label: "GitHub", href: githubUrl },
         ],
@@ -278,9 +285,226 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       "We think the same inflection is happening again. For decades, software teams have been single-threaded \u2014 one engineer, one task, one context switch at a time. AI agents change that equation. Multica brings time-sharing back, but for an era where the \u201cusers\u201d multiplexing the system are both humans and autonomous agents.",
       "In Multica, agents are first-class teammates. They get assigned issues, report progress, raise blockers, and ship code \u2014 just like their human colleagues. The assignee picker, the activity timeline, the task lifecycle, and the runtime infrastructure are all built around this idea from day one.",
       "Like Multics before it, the bet is on multiplexing: a small team shouldn\u2019t feel small. With the right system, two engineers and a fleet of agents can move like twenty.",
-      "The platform is fully open source and self-hostable. Your data stays on your infrastructure. Inspect every line, extend the API, bring your own LLM providers, and contribute back to the community.",
+      "The source code is public and you can self-host Multica for free. Your data stays on your infrastructure. Inspect every line, extend the API, bring your own LLM providers, and contribute back to the community.",
     ],
     cta: "View on GitHub",
+    team: {
+      title: "Who\u2019s behind Multica",
+      paragraphs: [
+        "Multica is built by a small team that has been working together since 2021. Before Multica, we built devv.ai, an AI search engine for developers. In 2025 we turned to the problem we kept running into ourselves: how a small team actually gets work done alongside AI agents. That became Multica.",
+        "The source code is public and you can self-host it, so you can read every line before you build on Multica, and a self-hosted deployment runs entirely on your own infrastructure. How commercial use works is spelled out on our [licensing page](/licensing).",
+      ],
+      contacts: [
+        {
+          label: "Commercial licensing & sales",
+          linkLabel: "Contact Sales",
+          href: "/contact-sales",
+        },
+        {
+          label: "How licensing works",
+          linkLabel: "Licensing FAQ",
+          href: "/licensing",
+        },
+        { label: "Community & support", linkLabel: "Discord", href: discordUrl },
+        { label: "Source code & issues", linkLabel: "GitHub", href: githubUrl },
+      ],
+    },
+  },
+
+  licensing: {
+    title: "Licensing",
+    intro: [
+      "Multica is released under the [Multica License](https://github.com/multica-ai/multica/blob/main/LICENSE): the Apache License 2.0 with a few additional conditions. The source code is public, and using Multica inside your own organization is free, including self-hosting it for your whole team.",
+      "The main additional condition covers hosted use: offering Multica to people outside your organization requires a commercial license. This page shows where that line falls, using the questions we hear most often. It is a plain-language guide, not legal advice. If anything here differs from the LICENSE, the LICENSE controls.",
+    ],
+    rule: {
+      title: "The rule of thumb",
+      text: "Is anyone outside your organization driving the instance \u2014 creating tasks, talking to agents, or triggering work? If so, through any interface (web, Slack, or API), that is a hosted service. If they only receive results your team produced with Multica, that is internal use.",
+    },
+    scenarios: {
+      title: "Common scenarios",
+      scenarioColumn: "Scenario",
+      licenseColumn: "Commercial license",
+      required: "Required",
+      notRequired: "Not required",
+      items: [
+        {
+          scenario: "Your organization uses Multica internally",
+          example: "Self-hosted, across any number of workspaces.",
+          required: false,
+        },
+        {
+          scenario:
+            "You deploy Multica for a client, who owns it and uses it internally",
+          example: "Implementation, training, consulting, or customization work.",
+          required: false,
+        },
+        {
+          scenario:
+            "Your team uses Multica to do work for clients, who only receive the deliverables",
+          example:
+            "An agency that runs its content production in Multica and ships the finished work.",
+          required: false,
+        },
+        {
+          scenario:
+            "Agents only push reports or notifications to a client\u2019s Slack channel",
+          example:
+            "The client reads them but never interacts with the instance.",
+          required: false,
+        },
+        {
+          scenario:
+            "You run and manage Multica instances for clients on your own infrastructure",
+          example: "A managed service, whether or not you charge for it.",
+          required: true,
+        },
+        {
+          scenario: "People outside your organization sign in to your instance",
+          example: "Clients, partners, or the public get their own accounts.",
+          required: true,
+        },
+        {
+          scenario:
+            "People outside your organization drive your instance through another entry point",
+          example:
+            "A public website backed by Multica, a Slack integration, or an API \u2014 even when it is free.",
+          required: true,
+        },
+        {
+          scenario: "You embed Multica in a product you sell or distribute",
+          example: "Multica ships as a component of another commercial offering.",
+          required: true,
+        },
+      ],
+    },
+    sections: [
+      {
+        heading: "Why Slack users count as users",
+        paragraphs: [
+          "Multica\u2019s Slack integration links each Slack user to a member account in your workspace. Anyone who works with your agents through Slack is therefore a user of your instance. If those people are outside your organization, you need a commercial license.",
+        ],
+      },
+      {
+        heading: "Other conditions",
+        bullets: [
+          "Branding: keep the Multica logo, product name, and the copyright and attribution information shown in the Multica interface, unless we have given you a written branding waiver.",
+          "Attribution: if you build on Multica\u2019s backend, daemon, or CLI without the Multica interface, keep the copyright and NOTICE information, and state in your user-facing documentation that your product is built on Multica, with a link to the [GitHub repository](https://github.com/multica-ai/multica).",
+          "Forks: publishing the source code of a fork is not a hosted service and needs no commercial license. Anyone who operates a hosted service from that fork needs their own.",
+          "A commercial license and a branding waiver are separate grants. One does not include the other.",
+        ],
+      },
+      {
+        heading: "Getting a commercial license",
+        paragraphs: [
+          "Tell us about your use case through [Contact Sales](/contact-sales) and we\u2019ll get back to you within three business days. Not sure whether your setup needs a license? Ask us on [Discord](" + discordUrl + ") or through the same form.",
+        ],
+      },
+    ],
+  },
+
+  privacy: {
+    title: "Privacy Policy",
+    lastUpdated: "Last updated: September 21, 2026",
+    intro: [
+      "This Privacy Policy explains how Index Labs (Hong Kong) Limited (“Multica”, “we”, “us”) collects, uses, and shares personal information when you visit multica.ai, contact us, or use Multica Cloud, our hosted service, including the web, desktop, and mobile apps.",
+      "It does not cover Multica deployments you host yourself. That data stays on your infrastructure and we never see it. The only thing a self-hosted server sends us is an anonymous daily snapshot: the server version and approximate counts of workspaces, members, agents, and tasks, with no names, email addresses, or content. You can turn it off with DO_NOT_TRACK=1.",
+    ],
+    sections: [
+      {
+        heading: "Information we collect",
+        bullets: [
+          "Account information: your name, email address, and profile picture. If you sign in with Google, we receive your name, email address, and profile picture from Google. You can also add profile details such as language, time zone, and a short bio, and answer onboarding questions such as your role, your use case, and how you heard about Multica.",
+          "Content you create: workspaces, issues, comments, chat messages, attachments, agent instructions, and anything else you or your agents put into Multica Cloud.",
+          "Contact Sales inquiries: your name, business email, company name and size, country or region, use case, goals, and communication preferences. To prevent abuse, we also record the IP address and browser user agent the form was sent from.",
+          "Billing information: subscription payments are handled by Stripe on pages hosted by Stripe. We never receive or store your full card details.",
+          "Usage and device information: app version, operating system, client type, and a randomly generated installation ID; the name of each machine you connect as a runtime (its hostname by default); and crash and error reports, with email addresses and tokens removed before they are sent.",
+          "Feedback: when you send feedback, we receive your message along with the page, app version, operating system, and any error details.",
+        ],
+      },
+      {
+        heading: "How we use information",
+        bullets: [
+          "To provide, operate, and secure Multica Cloud, including signing you in, syncing your workspaces, and delivering notifications and invitations.",
+          "To respond to Contact Sales inquiries and support requests.",
+          "To send service messages such as sign-in codes and workspace invitations. We only send product updates or marketing if you opted in, and you can unsubscribe at any time.",
+          "To understand how Multica is used, fix bugs, and improve the product.",
+          "To prevent abuse and meet our legal obligations.",
+        ],
+      },
+      {
+        heading: "AI features",
+        paragraphs: [
+          "Your coding agents run on your own machines or on runtimes you connect; Multica coordinates their tasks. Some Multica Cloud features, such as chat titles and suggested follow-ups, send the relevant chat messages to a third-party large language model provider to generate the result. We do not use your content to train AI models.",
+        ],
+      },
+      {
+        heading: "Cookies and analytics",
+        paragraphs: [
+          "We use cookies that are needed to keep you signed in, protect against cross-site request forgery, and give you access to files you uploaded. We also use a cookie that remembers which campaign or website referred you, for up to 30 days, and cookies that remember your language and the last workspace you opened.",
+          "We use PostHog to understand product usage and to collect crash reports. When you are signed in, PostHog receives your account name and email so we can match reports to your account. We do not use advertising cookies, and we do not sell your personal information.",
+        ],
+      },
+      {
+        heading: "Who we share information with",
+        paragraphs: [
+          "We share personal information only with service providers that help us run Multica, under agreements that limit how they use it, or when the law requires it. These include:",
+        ],
+        bullets: [
+          "Amazon Web Services: hosting, file storage, and content delivery",
+          "Vercel: hosting for the website and web app",
+          "Stripe: payments and billing",
+          "Resend: sign-in and invitation emails",
+          "PostHog: product analytics and crash reports",
+          "Google: sign-in, if you choose Sign in with Google",
+          "Large language model providers: the AI features described above",
+          "Integrations you connect, such as Slack, Lark, DingTalk, WeCom, Telegram, GitHub, or GitLab: the data you choose to exchange with them, which is also subject to their own terms",
+          "A buyer or successor, if Multica is involved in a merger, acquisition, or sale of assets",
+        ],
+      },
+      {
+        heading: "Where information is stored",
+        paragraphs: [
+          "Multica Cloud is hosted on Amazon Web Services and Vercel. We and our service providers may process your information in the United States and other countries. Wherever it is processed, we protect it as described in this policy.",
+        ],
+      },
+      {
+        heading: "How long we keep information",
+        paragraphs: [
+          "We keep account information and workspace content for as long as your account or workspace exists. When a workspace owner deletes a workspace, its issues, comments, and other content are deleted. Sign-in codes expire after 10 minutes. We keep Contact Sales inquiries and feedback for as long as they are useful for following up with you and improving Multica, and delete them on request.",
+        ],
+      },
+      {
+        heading: "Your choices and rights",
+        paragraphs: [
+          "Depending on where you live, you may have the right to access, correct, delete, or export your personal information, and to object to or restrict certain processing. You can update your profile in Multica at any time and delete a workspace you own from its settings. For anything else, including deleting your account, email [support@multica.ai](mailto:support@multica.ai). We will respond within 30 days.",
+        ],
+      },
+      {
+        heading: "Security",
+        paragraphs: [
+          "We protect your information with encryption in transit, access controls, and encrypted storage for integration credentials. No system is perfectly secure, so please contact us right away if you believe your account has been compromised.",
+        ],
+      },
+      {
+        heading: "Children",
+        paragraphs: [
+          "Multica is not directed to children under 16, and we do not knowingly collect their personal information.",
+        ],
+      },
+      {
+        heading: "Changes to this policy",
+        paragraphs: [
+          "We may update this policy from time to time. We will post the new version on this page and update the date at the top. If a change is significant, we will let you know before it takes effect.",
+        ],
+      },
+      {
+        heading: "Contact us",
+        paragraphs: [
+          "Multica is operated by Index Labs (Hong Kong) Limited, which is responsible for your personal information. For privacy questions or requests, email [support@multica.ai](mailto:support@multica.ai).",
+        ],
+      },
+    ],
   },
 
   changelog: {
@@ -3657,17 +3881,17 @@ export function createEnDict(allowSignup: boolean): LandingDict {
     ],
     consent: {
       intro:
-        "Multica, Inc. respects your privacy. We’ll use your personal information only to manage your account and deliver the products or services you’ve requested. Occasionally, we’d love to share product updates, best practices, and insights that may be relevant to you. Please let us know below if you’d like to hear from us.",
+        "Multica respects your privacy. We’ll use your personal information only to manage your account and deliver the products or services you’ve requested. Occasionally, we’d love to share product updates, best practices, and insights that may be relevant to you. Please let us know below if you’d like to hear from us.",
       outreach:
-        "I’d like to receive one-to-one communication from Multica, Inc., including service updates, support inquiries, and business-related follow-ups.",
+        "I’d like to receive one-to-one communication from Multica, including service updates, support inquiries, and business-related follow-ups.",
       updates:
         "I’d like to receive product updates, insights, and event invitations from Multica.",
       unsubscribe:
         "You can unsubscribe from our communications at any time. For more details on how we handle your data and privacy rights, please review our",
       submitConsent:
-        "By clicking “Submit,” you consent to allow Multica, Inc. to store and process your information for the purpose of delivering the requested content.",
+        "By clicking “Submit,” you consent to allow Multica to store and process your information for the purpose of delivering the requested content.",
       privacyLinkLabel: "Privacy Policy.",
-      privacyLinkHref: "/about",
+      privacyLinkHref: "/privacy",
     },
     success: {
       title: "Thanks — we got it.",

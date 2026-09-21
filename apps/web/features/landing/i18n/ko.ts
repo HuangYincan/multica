@@ -22,7 +22,7 @@ export function createKoDict(allowSignup: boolean): LandingDict {
       headlineLine1: "다음에 합류할 10명은",
       headlineLine2: "사람이 아닐지도 모릅니다.",
       subheading:
-        "Multica는 코딩 AI 에이전트를 진짜 팀원으로 만들어 주는 오픈소스 플랫폼입니다. 태스크를 맡기고, 진행 상황을 따라가고, 반복되는 노하우를 스킬로 쌓아 두세요. 사람과 AI 에이전트로 이루어진 팀을 한곳에서 관리할 수 있습니다.",
+        "Multica는 코딩 AI 에이전트를 진짜 팀원으로 만들어 주는 소스 공개 플랫폼입니다. 태스크를 맡기고, 진행 상황을 따라가고, 반복되는 노하우를 스킬로 쌓아 두세요. 사람과 AI 에이전트로 이루어진 팀을 한곳에서 관리할 수 있습니다.",
       cta: "무료로 시작하기",
       downloadDesktop: "데스크톱 다운로드",
       talkToSales: "영업팀에 문의",
@@ -157,12 +157,13 @@ export function createKoDict(allowSignup: boolean): LandingDict {
       ctaDocs: "문서 읽기",
     },
     openSource: {
-      label: "오픈소스",
-      headlineLine1: "모두를 위한",
-      headlineLine2: "오픈소스.",
+      label: "소스 공개",
+      headlineLine1: "모두에게 공개된",
+      headlineLine2: "소스 코드.",
       description:
-        "Multica는 완전한 오픈소스입니다. 코드를 직접 들여다보고, 원하는 환경에 셀프 호스팅하고, 사람과 AI 에이전트가 함께 일하는 방식을 같이 만들어 갈 수 있습니다.",
+        "Multica의 소스 코드는 공개되어 있습니다. 코드를 직접 들여다보고, 무료로 셀프 호스팅하고, 사람과 AI 에이전트가 함께 일하는 방식을 같이 만들어 갈 수 있습니다. Multica를 다른 사람에게 호스팅 서비스로 제공하려면 상용 라이선스가 필요합니다.",
       cta: "GitHub에서 스타 누르기",
+      licensingCta: "라이선스 안내 →",
       highlights: [
         {
           title: "어디서든 셀프 호스팅",
@@ -193,7 +194,7 @@ export function createKoDict(allowSignup: boolean): LandingDict {
         {
           question: "Multica는 어떤 코딩 에이전트를 지원하나요?",
           answer:
-            "Multica는 Antigravity, Claude Code, CodeBuddy, CodeArts, Codex, Copilot, Cursor, DeepSeek Harness, DevEco Code, Dim, Grok, Hermes, Kimi, Kiro CLI, MiniMax Code, Oh-My-Pi, OpenClaw, OpenCode, Pi, Qoder, Qoder CN, Qwen Code, QwenPaw, Reasonix, Trae CLI, ZeroClaw 등 26개 코딩 도구를 기본 지원합니다. 데몬이 이미 설치된 CLI를 자동으로 찾아 각각 런타임으로 등록합니다. 오픈소스이므로 직접 백엔드를 추가할 수도 있습니다.",
+            "Multica는 Antigravity, Claude Code, CodeBuddy, CodeArts, Codex, Copilot, Cursor, DeepSeek Harness, DevEco Code, Dim, Grok, Hermes, Kimi, Kiro CLI, MiniMax Code, Oh-My-Pi, OpenClaw, OpenCode, Pi, Qoder, Qoder CN, Qwen Code, QwenPaw, Reasonix, Trae CLI, ZeroClaw 등 26개 코딩 도구를 기본 지원합니다. 데몬이 이미 설치된 CLI를 자동으로 찾아 각각 런타임으로 등록합니다. 소스 코드가 공개되어 있으므로 직접 백엔드를 추가할 수도 있습니다.",
         },
         {
           question: "셀프 호스팅만 가능한가요, 클라우드 버전도 있나요?",
@@ -218,13 +219,13 @@ export function createKoDict(allowSignup: boolean): LandingDict {
         {
           question: "에이전트는 몇 개까지 실행할 수 있나요?",
           answer:
-            "하드웨어가 감당할 수 있는 만큼 실행할 수 있습니다. 에이전트마다 동시 실행 수를 조절할 수 있고, 여러 대의 머신을 런타임으로 함께 연결할 수도 있습니다. 오픈소스 버전에는 별도의 제한이 없습니다.",
+            "하드웨어가 감당할 수 있는 만큼 실행할 수 있습니다. 에이전트마다 동시 실행 수를 조절할 수 있고, 여러 대의 머신을 런타임으로 함께 연결할 수도 있습니다. 셀프 호스팅할 때는 별도의 제한이 없습니다.",
         },
       ],
     },
     footer: {
       tagline:
-        "사람과 AI 에이전트가 함께 일하는 팀을 위한 프로젝트 관리 도구. 오픈소스이며, 원하는 곳에 직접 호스팅할 수 있습니다.",
+        "사람과 AI 에이전트가 함께 일하는 팀을 위한 프로젝트 관리 도구. 소스 코드가 공개되어 있으며, 원하는 곳에 직접 호스팅할 수 있습니다.",
       cta: "시작하기",
       groups: {
         product: {
@@ -250,7 +251,8 @@ export function createKoDict(allowSignup: boolean): LandingDict {
           label: "회사",
           links: [
             { label: "소개", href: "/about" },
-            { label: "오픈소스", href: "#open-source" },
+            { label: "라이선스", href: "/licensing" },
+            { label: "개인정보 처리방침", href: "/privacy" },
             { label: "영업팀 문의", href: "/contact-sales" },
             { label: "GitHub", href: githubUrl },
           ],
@@ -3021,9 +3023,209 @@ export function createKoDict(allowSignup: boolean): LandingDict {
         "지금 비슷한 전환점이 다시 오고 있다고 봅니다. 지난 수십 년 동안 소프트웨어 팀은 사실상 단일 스레드로 일해 왔습니다. 엔지니어 한 명이 한 작업을 맡고, 한 번에 하나의 맥락만 다루는 식이었습니다. AI 에이전트는 이 공식을 바꿉니다. Multica는 시분할의 발상을 다시 꺼내 오되, 이번에는 시스템을 함께 쓰는 \"사용자\"가 사람과 자율 에이전트 양쪽을 의미하는 시대에 맞게 다시 풀어냅니다.",
         "Multica에서 에이전트는 정식 팀원입니다. 사람 동료와 똑같이 태스크를 할당받고, 진행 상황을 보고하고, 막힌 부분을 알리고, 코드를 배포합니다. 담당자 선택, 활동 타임라인, 작업 생명주기, 런타임 인프라는 모두 이 전제를 중심으로 처음부터 설계되었습니다.",
         "Multics가 그랬듯, 핵심은 multiplexing입니다. 작은 팀이라고 작게 움직일 필요는 없습니다. 올바른 시스템이 있다면 엔지니어 두 명과 에이전트 한 무리가 스무 명짜리 팀처럼 움직일 수 있습니다.",
-        "Multica는 완전한 오픈소스이며 셀프 호스팅할 수 있습니다. 데이터는 여러분의 인프라 안에 그대로 남습니다. 모든 코드를 들여다보고, API를 확장하고, 원하는 LLM 제공자를 연결하고, 커뮤니티에 기여할 수 있습니다.",
+        "Multica의 소스 코드는 공개되어 있으며 무료로 셀프 호스팅할 수 있습니다. 데이터는 여러분의 인프라 안에 그대로 남습니다. 모든 코드를 들여다보고, API를 확장하고, 원하는 LLM 제공자를 연결하고, 커뮤니티에 기여할 수 있습니다.",
       ],
       cta: "GitHub에서 보기",
+      team: {
+        title: "Multica를 만드는 사람들",
+        paragraphs: [
+          "Multica는 2021년부터 함께 일해 온 작은 팀이 만들고 있습니다. Multica 이전에는 개발자를 위한 AI 검색 엔진 devv.ai를 만들었습니다. 2025년, 저희가 계속 부딪혀 온 문제, 즉 작은 팀이 AI 에이전트와 함께 실제로 일을 해내는 방법에 집중하기 시작했고, 그 결과가 Multica입니다.",
+          "소스 코드가 공개되어 있고 셀프 호스팅도 가능하므로, Multica 위에 무언가를 만들기 전에 모든 코드를 직접 확인할 수 있습니다. 셀프 호스팅한 배포는 전부 여러분의 인프라에서 실행됩니다. 상업적 이용 방식은 [라이선스 안내](/licensing) 페이지에서 자세히 설명합니다.",
+        ],
+        contacts: [
+          { label: "상용 라이선스 및 영업", linkLabel: "영업팀 문의", href: "/contact-sales" },
+          { label: "라이선스 안내", linkLabel: "라이선스 FAQ", href: "/licensing" },
+          { label: "커뮤니티 및 지원", linkLabel: "Discord", href: discordUrl },
+          { label: "소스 코드 및 이슈", linkLabel: "GitHub", href: githubUrl },
+        ],
+      },
+    },
+    licensing: {
+      title: "라이선스",
+      intro: [
+        "Multica는 [Multica License](https://github.com/multica-ai/multica/blob/main/LICENSE)로 배포됩니다. Apache License 2.0에 몇 가지 추가 조건을 더한 라이선스입니다. 소스 코드는 공개되어 있으며, 조직 내부에서 Multica를 사용하는 것은 무료입니다. 팀 전체를 위해 셀프 호스팅하는 경우도 마찬가지입니다.",
+        "가장 중요한 추가 조건은 호스팅 방식의 이용에 관한 것입니다. 조직 외부 사람들에게 Multica를 제공하려면 상용 라이선스가 필요합니다. 이 페이지에서는 자주 받는 질문을 바탕으로 그 기준을 설명합니다. 이해를 돕기 위한 안내일 뿐 법률 자문이 아니며, LICENSE 원문과 다른 부분이 있다면 LICENSE가 우선합니다.",
+      ],
+      rule: {
+        title: "판단 기준",
+        text: "조직 외부의 누군가가 이 인스턴스를 움직이고 있나요? 즉 태스크를 만들거나, 에이전트와 대화하거나, 작업을 실행시키고 있나요? 그렇다면 웹, Slack, API 등 어떤 경로를 통하든 호스팅 서비스에 해당합니다. 여러분의 팀이 Multica로 만든 결과물만 받아 본다면 내부 사용입니다.",
+      },
+      scenarios: {
+        title: "자주 묻는 사례",
+        scenarioColumn: "사례",
+        licenseColumn: "상용 라이선스",
+        required: "필요",
+        notRequired: "불필요",
+        items: [
+          {
+            scenario: "조직 내부에서 Multica 사용",
+            example: "셀프 호스팅, 워크스페이스 수와 관계없이.",
+            required: false,
+          },
+          {
+            scenario: "고객을 위해 Multica를 구축하고, 고객이 직접 소유하며 내부에서 사용",
+            example: "도입 지원, 교육, 컨설팅, 커스터마이징 등.",
+            required: false,
+          },
+          {
+            scenario: "우리 팀이 Multica로 고객 업무를 하고, 고객은 결과물만 받음",
+            example: "예: Multica로 콘텐츠 제작을 관리하고 완성본을 납품하는 에이전시.",
+            required: false,
+          },
+          {
+            scenario: "에이전트가 고객의 Slack 채널로 리포트나 알림을 일방적으로 보내기만 함",
+            example: "고객은 메시지를 읽기만 하고 인스턴스와 상호작용하지 않습니다.",
+            required: false,
+          },
+          {
+            scenario: "자체 인프라에서 고객을 위해 Multica 인스턴스를 운영·관리",
+            example: "매니지드 서비스. 요금 부과 여부와 관계없습니다.",
+            required: true,
+          },
+          {
+            scenario: "조직 외부 사람이 여러분의 인스턴스에 로그인",
+            example: "고객, 파트너, 일반 사용자가 자신의 계정을 갖는 경우.",
+            required: true,
+          },
+          {
+            scenario: "조직 외부 사람이 다른 경로로 여러분의 인스턴스를 움직임",
+            example: "Multica를 백엔드로 쓰는 공개 웹사이트, Slack 연동, API 등. 무료로 제공하더라도 마찬가지입니다.",
+            required: true,
+          },
+          {
+            scenario: "판매하거나 배포하는 제품에 Multica를 포함",
+            example: "Multica가 다른 상용 제품의 구성 요소로 제공되는 경우.",
+            required: true,
+          },
+        ],
+      },
+      sections: [
+        {
+          heading: "Slack 사용자도 사용자로 보는 이유",
+          paragraphs: [
+            "Multica의 Slack 연동은 각 Slack 사용자를 워크스페이스의 멤버 계정과 연결합니다. 따라서 Slack을 통해 에이전트와 함께 일하는 사람은 그 인스턴스의 사용자입니다. 이들이 조직 외부 사람이라면 상용 라이선스가 필요합니다.",
+          ],
+        },
+        {
+          heading: "기타 조건",
+          bullets: [
+            "브랜딩: 서면으로 브랜딩 면제를 받지 않았다면, Multica 인터페이스에 표시되는 Multica 로고, 제품명, 저작권 및 출처 표시를 제거하거나 변경하지 마세요.",
+            "출처 표시: Multica 인터페이스 없이 백엔드, 데몬, CLI를 기반으로 제품을 만든다면 저작권 및 NOTICE 정보를 유지하고, 사용자용 문서에 Multica를 기반으로 만들었다는 사실을 [GitHub 저장소](https://github.com/multica-ai/multica) 링크와 함께 밝혀 주세요.",
+            "포크: 포크의 소스 코드를 공개하는 것 자체는 호스팅 서비스가 아니므로 상용 라이선스가 필요하지 않습니다. 다만 그 포크로 호스팅 서비스를 운영하는 사람은 각자 상용 라이선스를 받아야 합니다.",
+            "상용 라이선스와 브랜딩 면제는 별개의 허가입니다. 하나를 받았다고 다른 하나가 포함되지는 않습니다.",
+          ],
+        },
+        {
+          heading: "상용 라이선스 받기",
+          paragraphs: [
+            "[영업팀 문의](/contact-sales)로 사용 사례를 알려 주시면 영업일 기준 3일 이내에 답변드립니다. 라이선스가 필요한지 잘 모르겠다면 [Discord](" + discordUrl + ")나 같은 양식으로 편하게 물어보세요.",
+          ],
+        },
+      ],
+    },
+    privacy: {
+      title: "개인정보 처리방침",
+      lastUpdated: "최종 업데이트: 2026년 9월 21일",
+      intro: [
+        "이 개인정보 처리방침은 Index Labs (Hong Kong) Limited(이하 “Multica” 또는 “저희”)가 여러분이 multica.ai를 방문하거나, 저희에게 문의하거나, 호스팅 서비스인 Multica Cloud(웹, 데스크톱, 모바일 앱 포함)를 이용할 때 개인정보를 어떻게 수집, 이용, 공유하는지 설명합니다.",
+        "이 방침은 여러분이 직접 호스팅하는 Multica에는 적용되지 않습니다. 그 데이터는 여러분의 인프라에 머무르며 저희는 볼 수 없습니다. 셀프 호스팅 서버가 저희에게 보내는 것은 하루 한 번의 익명 스냅샷뿐입니다. 서버 버전과 워크스페이스, 멤버, 에이전트, 태스크의 대략적인 수만 담기며, 이름, 이메일 주소, 콘텐츠는 포함되지 않습니다. DO_NOT_TRACK=1로 설정하면 끌 수 있습니다.",
+        "이 방침은 영어 원문을 기준으로 합니다. 한국어 번역본과 영어 원문의 내용이 다를 경우 영어 원문이 우선합니다.",
+      ],
+      sections: [
+        {
+          heading: "수집하는 정보",
+          bullets: [
+            "계정 정보: 이름, 이메일 주소, 프로필 사진. Google로 로그인하면 Google로부터 이름, 이메일 주소, 프로필 사진을 받습니다. 언어, 시간대, 자기소개 같은 프로필 정보와 온보딩 답변(역할, 사용 목적, Multica를 알게 된 경로 등)을 입력할 수도 있습니다.",
+            "여러분이 만든 콘텐츠: 워크스페이스, 이슈, 댓글, 채팅 메시지, 첨부 파일, 에이전트 지침 등 여러분이나 여러분의 에이전트가 Multica Cloud에 입력하는 모든 것.",
+            "영업팀 문의: 이름, 업무용 이메일, 회사명과 규모, 국가 또는 지역, 사용 사례, 목표, 연락 수신 설정. 악용을 막기 위해 양식을 제출한 IP 주소와 브라우저 user agent도 기록합니다.",
+            "결제 정보: 구독 결제는 Stripe가 호스팅하는 페이지에서 Stripe가 처리합니다. 저희는 전체 카드 정보를 받거나 저장하지 않습니다.",
+            "사용 및 기기 정보: 앱 버전, 운영체제, 클라이언트 유형, 무작위로 생성된 설치 ID, 런타임으로 연결한 각 머신의 이름(기본값은 호스트 이름), 그리고 충돌 및 오류 보고서(전송 전에 이메일 주소와 토큰을 제거합니다).",
+            "피드백: 피드백을 보내면 그 내용과 함께 페이지, 앱 버전, 운영체제, 오류 정보를 받습니다.",
+          ],
+        },
+        {
+          heading: "정보 이용 목적",
+          bullets: [
+            "Multica Cloud의 제공, 운영, 보호(로그인, 워크스페이스 동기화, 알림 및 초대 발송 등).",
+            "영업팀 문의와 지원 요청에 대한 응답.",
+            "로그인 코드, 워크스페이스 초대 등 서비스 메시지 발송. 제품 소식이나 마케팅 정보는 동의한 경우에만 보내며, 언제든지 수신을 거부할 수 있습니다.",
+            "Multica 이용 현황 파악, 버그 수정, 제품 개선.",
+            "악용 방지와 법적 의무 이행.",
+          ],
+        },
+        {
+          heading: "AI 기능",
+          paragraphs: [
+            "코딩 에이전트는 여러분의 머신이나 여러분이 연결한 런타임에서 실행되며, Multica는 그 작업을 조율합니다. 채팅 제목 생성이나 후속 작업 제안 같은 Multica Cloud의 일부 기능은 결과를 만들기 위해 관련 채팅 메시지를 외부 대규모 언어 모델 제공자에게 보냅니다. 저희는 여러분의 콘텐츠를 AI 모델 학습에 사용하지 않습니다.",
+          ],
+        },
+        {
+          heading: "쿠키와 분석",
+          paragraphs: [
+            "로그인 상태 유지, 사이트 간 요청 위조 방지, 업로드한 파일 접근에 필요한 쿠키를 사용합니다. 또한 어떤 캠페인이나 웹사이트를 통해 방문했는지를 최대 30일 동안 기억하는 쿠키와, 언어 및 마지막으로 연 워크스페이스를 기억하는 쿠키도 사용합니다.",
+            "제품 이용 현황 파악과 충돌 보고서 수집에는 PostHog를 사용합니다. 로그인한 상태에서는 보고서를 계정과 연결하기 위해 계정의 이름과 이메일이 PostHog로 전송됩니다. 광고용 쿠키는 사용하지 않으며, 여러분의 개인정보를 판매하지 않습니다.",
+          ],
+        },
+        {
+          heading: "정보 공유 대상",
+          paragraphs: [
+            "저희는 Multica 운영을 돕고 계약으로 이용 범위가 제한된 서비스 제공자, 또는 법령이 요구하는 경우에만 개인정보를 공유합니다. 주요 공유 대상은 다음과 같습니다.",
+          ],
+          bullets: [
+            "Amazon Web Services: 호스팅, 파일 저장, 콘텐츠 전송",
+            "Vercel: 웹사이트 및 웹 앱 호스팅",
+            "Stripe: 결제 및 청구",
+            "Resend: 로그인 및 초대 이메일",
+            "PostHog: 제품 분석 및 충돌 보고서",
+            "Google: Google 로그인을 선택한 경우",
+            "대규모 언어 모델 제공자: 위에서 설명한 AI 기능",
+            "여러분이 연결한 연동 서비스(Slack, Lark, DingTalk, WeCom, Telegram, GitHub, GitLab 등): 여러분이 이를 통해 주고받는 데이터이며, 각 서비스의 약관도 적용됩니다",
+            "인수자 또는 승계자: Multica가 합병, 인수, 자산 매각의 대상이 되는 경우",
+          ],
+        },
+        {
+          heading: "정보 저장 위치",
+          paragraphs: [
+            "Multica Cloud는 Amazon Web Services와 Vercel에서 호스팅됩니다. 저희와 서비스 제공자는 미국 및 기타 국가나 지역에서 여러분의 정보를 처리할 수 있습니다. 어디에서 처리되든 이 방침에 따라 정보를 보호합니다.",
+          ],
+        },
+        {
+          heading: "보관 기간",
+          paragraphs: [
+            "계정 정보와 워크스페이스 콘텐츠는 계정이나 워크스페이스가 존재하는 동안 보관합니다. 워크스페이스 소유자가 워크스페이스를 삭제하면 이슈, 댓글 등 그 안의 콘텐츠가 삭제됩니다. 로그인 코드는 10분 후 만료됩니다. 영업팀 문의와 피드백은 후속 연락과 제품 개선에 필요한 기간 동안 보관하며, 요청하시면 삭제합니다.",
+          ],
+        },
+        {
+          heading: "여러분의 선택과 권리",
+          paragraphs: [
+            "거주 지역의 법령에 따라 여러분은 개인정보의 열람, 정정, 삭제, 내보내기를 요청하거나 특정 처리에 반대하거나 이를 제한할 권리가 있을 수 있습니다. 프로필은 Multica에서 언제든지 수정할 수 있고, 소유한 워크스페이스는 설정에서 삭제할 수 있습니다. 계정 삭제 등 그 밖의 요청은 [support@multica.ai](mailto:support@multica.ai)로 이메일을 보내 주세요. 30일 이내에 답변드립니다.",
+          ],
+        },
+        {
+          heading: "보안",
+          paragraphs: [
+            "전송 구간 암호화, 접근 제어, 연동 서비스 인증 정보의 암호화 저장 등으로 여러분의 정보를 보호합니다. 완벽하게 안전한 시스템은 없으므로, 계정이 도용되었다고 생각되면 바로 연락해 주세요.",
+          ],
+        },
+        {
+          heading: "아동",
+          paragraphs: [
+            "Multica는 16세 미만 아동을 대상으로 하지 않으며, 아동의 개인정보를 알면서 수집하지 않습니다.",
+          ],
+        },
+        {
+          heading: "방침 변경",
+          paragraphs: [
+            "이 방침은 수시로 업데이트될 수 있습니다. 새 버전은 이 페이지에 게시하고 상단의 날짜를 업데이트합니다. 중요한 변경이 있으면 시행 전에 알려 드립니다.",
+          ],
+        },
+        {
+          heading: "문의하기",
+          paragraphs: [
+            "Multica는 Index Labs (Hong Kong) Limited가 운영하며, 여러분의 개인정보에 대한 책임을 집니다. 개인정보 관련 질문이나 요청은 [support@multica.ai](mailto:support@multica.ai)로 이메일을 보내 주세요.",
+          ],
+        },
+      ],
     },
     download: {
       hero: {
@@ -3179,17 +3381,17 @@ export function createKoDict(allowSignup: boolean): LandingDict {
       ],
       consent: {
         intro:
-          "Multica, Inc.는 여러분의 개인정보를 소중히 다룹니다. 제공해 주신 개인정보는 계정 관리와 요청하신 제품·서비스 제공에만 사용합니다. 가끔씩 제품 업데이트, 활용 팁, 도움이 될 만한 인사이트도 함께 전해 드리고 싶습니다. 소식을 받고 싶으시다면 아래에서 선택해 주세요.",
+          "Multica는 여러분의 개인정보를 소중히 다룹니다. 제공해 주신 개인정보는 계정 관리와 요청하신 제품·서비스 제공에만 사용합니다. 가끔씩 제품 업데이트, 활용 팁, 도움이 될 만한 인사이트도 함께 전해 드리고 싶습니다. 소식을 받고 싶으시다면 아래에서 선택해 주세요.",
         outreach:
-          "서비스 업데이트, 지원 문의, 비즈니스 관련 후속 연락 등 Multica, Inc.로부터 개별 연락을 받겠습니다.",
+          "서비스 업데이트, 지원 문의, 비즈니스 관련 후속 연락 등 Multica로부터 개별 연락을 받겠습니다.",
         updates:
           "Multica의 제품 업데이트, 인사이트, 이벤트 초대 소식을 받겠습니다.",
         unsubscribe:
           "언제든 수신을 거부할 수 있습니다. 개인정보와 데이터 권리를 어떻게 다루는지는 다음 문서에서 자세히 확인하실 수 있습니다:",
         submitConsent:
-          "\"제출\"을 클릭하시면 요청하신 콘텐츠를 보내 드리기 위해 Multica, Inc.가 정보를 저장하고 처리하는 것에 동의하게 됩니다.",
+          "\"제출\"을 클릭하시면 요청하신 콘텐츠를 보내 드리기 위해 Multica가 정보를 저장하고 처리하는 것에 동의하게 됩니다.",
         privacyLinkLabel: "개인정보 처리방침.",
-        privacyLinkHref: "/about",
+        privacyLinkHref: "/privacy",
       },
       success: {
         title: "감사합니다. 요청을 잘 받았습니다.",
