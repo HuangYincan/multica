@@ -753,9 +753,7 @@ jobs:
         # failure modes now truncate that job's coverage too, and Cursor
         # ownership is the newest arrival, not the load-bearing one. The ubuntu
         # backend job still covers the untagged and Unix arms.
-        # STRESS (MUL-7417 PR only, reverted before merge): -count=20 to show the
-        # PID-reuse race is gone on the Windows runner.
-        run: go test -race ./pkg/agent -v -run 'TestCursorBackground|TestCaptureCursorBackground' -count=20 -timeout=15m
+        run: go test -race ./pkg/agent -v -run 'TestCursorBackground|TestCaptureCursorBackground' -count=1 -timeout=5m
 
   # The only macOS runner here, and the only place cursor_background_process_darwin.go
   # is ever built: it signals a process group through XNU's per-process unique
