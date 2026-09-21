@@ -51,6 +51,31 @@ func wakeDispatch(t *testing.T, s *IssueWakeupService, w db.IssueWakeup) {
 	}
 }
 
+// wakeSetStatus writes a status the way production writers do: the status
+// update and StopClosedIssueWakeups commit in one transaction.
+func wakeSetStatus(t *testing.T, f principalFixture, issue pgtype.UUID, status string) []db.AgentTaskQueue {
+	t.Helper()
+	ctx := context.Background()
+	tx, err := f.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	q := f.q.WithTx(tx)
+	updated, err := q.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{ID: issue, Status: status, WorkspaceID: parseTestUUID(t, f.WorkspaceID)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, err := StopClosedIssueWakeups(ctx, q, updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return cancelled
+}
+
 func TestIssueWakeupEventAtomicOnceAndIndependentInputs(t *testing.T) {
 	f, s, issue, agent := wakeFixture(t)
 	ctx := context.Background()
@@ -141,16 +166,21 @@ func TestIssueWakeupContinuousSelfLoopAndClose(t *testing.T) {
 		t.Fatalf("pending backlog: %d", n)
 	}
 	f.Insert(t, "issue_status", testutil.Cols{"workspace_id": f.WorkspaceID, "key": "finished", "name": "Finished", "category": "done", "color": "#000000"})
-	f.Exec(t, "UPDATE issue SET status='finished' WHERE id=$1", issue)
+	cancelled := wakeSetStatus(t, f, issue, "finished")
 	got, _ = f.q.GetIssueWakeup(ctx, db.GetIssueWakeupParams{ID: w.ID, WorkspaceID: w.WorkspaceID})
 	if got.Enabled || !got.DisabledAt.Valid {
 		t.Fatal("custom end state did not disable")
+	}
+	if len(cancelled) != 1 || cancelled[0].Status != "cancelled" || cancelled[0].ID == first {
+		t.Fatalf("close did not withdraw only the unstarted run: %+v", cancelled)
 	}
 	task, _ := f.q.GetAgentTask(ctx, first)
 	if task.Status != "running" {
 		t.Fatal("close stopped active run")
 	}
-	f.Exec(t, "UPDATE issue SET status='todo' WHERE id=$1", issue)
+	if cancelled = wakeSetStatus(t, f, issue, "todo"); len(cancelled) != 0 {
+		t.Fatal("reopen cancelled runs")
+	}
 	got, _ = f.q.GetIssueWakeup(ctx, db.GetIssueWakeupParams{ID: w.ID, WorkspaceID: w.WorkspaceID})
 	if got.Enabled {
 		t.Fatal("reopen enabled old subscription")
