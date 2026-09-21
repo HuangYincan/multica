@@ -185,13 +185,6 @@ type streamHandle struct {
 	ChatID         string
 	ChatType       int
 
-	// QueuedBehind records that this round was opened while another round was
-	// still open — it spent its life waiting in line. An empty answer for such
-	// a round means "handled together with the previous reply", which is worth
-	// saying differently from a first round's plain silence. Set by the store
-	// at open; callers registering a handle leave it false.
-	QueuedBehind bool
-
 	// Locale is the language this round's closing words are written in,
 	// resolved from the asker when the bubble was opened (typing_indicator.go).
 	// It travels on the handle because every closer runs later, from an event
@@ -574,7 +567,6 @@ func (s *streamStore) open(sessionID pgtype.UUID, h streamHandle) (roundSeq, ope
 
 	s.seq++
 	e := &roundEntry{seq: s.seq, handle: h, painted: true, createdAt: h.CreatedAt}
-	e.handle.QueuedBehind = queuedBehind(s.sessions[key])
 	s.insertLocked(key, e)
 	// A run queued before anything was on screen has been waiting for exactly
 	// this. Pairing them here rather than leaving the run for the NEXT bubble
@@ -584,12 +576,6 @@ func (s *streamStore) open(sessionID pgtype.UUID, h streamHandle) (roundSeq, ope
 	}
 	return e.seq, roundOpened
 }
-
-// queuedBehind reports whether a round opening now would be waiting on one
-// already on file. Its own empty answer then means "the reply ahead of it
-// covered this", which is worth saying differently from plain silence. Decided
-// once, when the round opens, and never revised.
-func queuedBehind(rounds []*roundEntry) bool { return len(rounds) > 0 }
 
 // bindNext records that a run was queued for this session and hands it the
 // round it belongs to: the oldest one still waiting for a run. From here on

@@ -284,7 +284,7 @@ func (o *Outbound) processEvent(ctx context.Context, e events.Event) error {
 	// waiting on, and they would read a web run's ending in it. An answer that
 	// must not reach the room must not take over the room's message either. The
 	// failure notice orders its own gate the same way, and for the same reason
-	// — see failureBelongsOnWecom in typing_indicator.go.
+	// — see originOf in typing_indicator.go.
 	//
 	// Everything up to here is a read. Keep it that way.
 	//
@@ -403,12 +403,9 @@ func (o *Outbound) deliverAnswer(ctx context.Context, e events.Event, taskID pgt
 		// thing on screen.
 		//
 		// A ROUND THAT WAITED IN LINE SAYS THE SAME THING AS ONE THAT DID NOT.
-		// "已并入上一条回复" reads as a merge, and nothing here merged anything:
-		// QueuedBehind records only that another round was open when this one
-		// was painted, which is not evidence that the reply ahead covered this
-		// message. A real merged notice needs a real merge signal. Falling
-		// through to StreamNoReply drops the claim without adding state, and
-		// it puts the attachment case back in charge when files are carried.
+		// Another round being open when this one was painted is not evidence
+		// that the reply ahead covered this message, so there is no "merged
+		// with the previous reply" notice: that would need a real merge signal.
 		text := content
 		if !hasVisibleChar(text) {
 			c := copyFor(t.Handle.Locale)
