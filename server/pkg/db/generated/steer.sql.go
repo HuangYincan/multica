@@ -239,7 +239,7 @@ func (q *Queries) GetCommentSteerDeliveryForTask(ctx context.Context, arg GetCom
 }
 
 const listCommentAgentDeliveries = `-- name: ListCommentAgentDeliveries :many
-SELECT d.comment_id, d.agent_id, a.name AS agent_name, d.task_id, d.status, d.delivered_at
+SELECT d.comment_id, d.agent_id, a.name AS agent_name, d.status, d.delivered_at
 FROM comment_agent_delivery d
 JOIN agent a ON a.id = d.agent_id
 WHERE d.comment_id = ANY($1::uuid[])
@@ -250,7 +250,6 @@ type ListCommentAgentDeliveriesRow struct {
 	CommentID   pgtype.UUID        `json:"comment_id"`
 	AgentID     pgtype.UUID        `json:"agent_id"`
 	AgentName   string             `json:"agent_name"`
-	TaskID      pgtype.UUID        `json:"task_id"`
 	Status      string             `json:"status"`
 	DeliveredAt pgtype.Timestamptz `json:"delivered_at"`
 }
@@ -268,7 +267,6 @@ func (q *Queries) ListCommentAgentDeliveries(ctx context.Context, commentIds []p
 			&i.CommentID,
 			&i.AgentID,
 			&i.AgentName,
-			&i.TaskID,
 			&i.Status,
 			&i.DeliveredAt,
 		); err != nil {

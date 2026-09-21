@@ -53,11 +53,6 @@ export interface Comment {
 export interface CommentAgentDelivery {
   agent_id: string;
   agent_name: string;
-  /**
-   * Run associated with this receipt. Older servers omit it and receipts
-   * created directly as follow-up have no task, so accept both forms.
-   */
-  task_id?: string | null;
   status: "pending" | "delivered" | "follow_up" | string;
   delivered_at?: string | null;
 }

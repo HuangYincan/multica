@@ -918,7 +918,6 @@ const TimelineEntrySchema = z.object({
   agent_deliveries: z.array(z.object({
     agent_id: z.string(),
     agent_name: z.string(),
-    task_id: z.string().nullable().optional(),
     status: z.string(),
     delivered_at: z.string().nullable().optional(),
   }).loose()).optional().catch(undefined),
@@ -1067,7 +1066,6 @@ export const CommentSchema = z.object({
   agent_deliveries: z.array(z.object({
     agent_id: z.string(),
     agent_name: z.string(),
-    task_id: z.string().nullable().optional(),
     status: z.string(),
     delivered_at: z.string().nullable().optional(),
   }).loose()).optional().catch(undefined),

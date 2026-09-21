@@ -563,7 +563,6 @@
     "trigger_current_safe_point": "Complète le travail en cours au prochain point sûr.",
     "delivery_pending": "En attente de livraison au travail en cours de {{name}}",
     "delivery_delivered": "Livré au travail en cours de {{name}} · {{time}}",
-    "delivery_view_reply": "Voir la réponse finale",
     "delivery_follow_up": "{{name}} le traitera dans un suivi",
     "trigger_will_start_count_one": "{{count}} agent démarrera à l'envoi",
     "trigger_will_start_count_other": "{{count}} agents démarreront à l'envoi",
