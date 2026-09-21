@@ -388,13 +388,17 @@ func (q *Queries) CreateWakeupTask(ctx context.Context, arg CreateWakeupTaskPara
 }
 
 const deleteExpiredWakeupReceipts = `-- name: DeleteExpiredWakeupReceipts :execrows
-DELETE FROM issue_wakeup_receipt WHERE id IN (
+WITH batch AS MATERIALIZED (
  SELECT expired.id FROM issue_wakeup_receipt expired WHERE expired.processed_at < $1
  ORDER BY expired.processed_at,expired.id LIMIT 1000 FOR UPDATE SKIP LOCKED
 )
+DELETE FROM issue_wakeup_receipt r USING batch WHERE r.id=batch.id
 `
 
 // Pending inputs are never expired. Bound work and avoid waiting on dispatch.
+// MATERIALIZED evaluates the batch once. As an IN subquery, a nested-loop plan
+// rescans it per outer row, skips the rows this DELETE already removed, and
+// slides the LIMIT window until every expired row is gone.
 func (q *Queries) DeleteExpiredWakeupReceipts(ctx context.Context, cutoff pgtype.Timestamptz) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteExpiredWakeupReceipts, cutoff)
 	if err != nil {
