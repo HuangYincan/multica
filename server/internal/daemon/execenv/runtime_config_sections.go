@@ -768,7 +768,6 @@ func writeWorkflowAutopilot(b *strings.Builder) {
 // worker the next. Owner-accepted tradeoff; decision recorded in MUL-5811.
 func writeWorkflowIssue(b *strings.Builder, ctx TaskContextForEnv) {
 	b.WriteString("**Every issue turn runs the same workflow.** The per-turn user message carries what triggered this run — an assignment handoff, or a triggering comment with its id and your `--parent` value — plus this issue's real id and ready-to-run context-read commands; assemble other calls from `## Available Commands`.\n\n")
-	b.WriteString("A `[STEER]` message is a human comment delivered while this turn is active. Apply it at the next safe boundary as additional guidance for the current task, preserving the original objective unless the message explicitly changes it.\n\n")
 
 	b.WriteString("1. Read the issue (`multica issue get`) to understand the context.\n")
 	b.WriteString("   The per-turn message may report that the server compared the issue against your last run; when it says the issue is unchanged, that report is this step's answer and you continue from your resumed context. Only that explicit report waives the read — a message that says nothing about the issue record has not compared it.\n")

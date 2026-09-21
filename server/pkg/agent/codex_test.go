@@ -42,46 +42,6 @@ func newTestCodexClient(t *testing.T) (*codexClient, *fakeStdin, []Message) {
 	return c, fs, messages
 }
 
-func TestSteerCodexTurnUsesExpectedActiveTurn(t *testing.T) {
-	c, stdin, _ := newTestCodexClient(t)
-	c.setThreadID("thread-current")
-	c.setActiveTurnID("turn-current")
-	done := make(chan error, 1)
-	go func() { done <- steerCodexTurn(context.Background(), c, "new constraint") }()
-
-	deadline := time.Now().Add(time.Second)
-	for len(stdin.Lines()) == 0 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	lines := stdin.Lines()
-	if len(lines) != 1 {
-		t.Fatalf("steer requests = %d, want 1", len(lines))
-	}
-	var request map[string]any
-	if err := json.Unmarshal([]byte(lines[0]), &request); err != nil {
-		t.Fatalf("decode request: %v", err)
-	}
-	if request["method"] != "turn/steer" {
-		t.Fatalf("method = %v", request["method"])
-	}
-	params := request["params"].(map[string]any)
-	if params["threadId"] != "thread-current" || params["expectedTurnId"] != "turn-current" {
-		t.Fatalf("params = %+v", params)
-	}
-	input, ok := params["input"].([]any)
-	if !ok || len(input) != 1 {
-		t.Fatalf("input = %#v, want one text item", params["input"])
-	}
-	item, ok := input[0].(map[string]any)
-	if !ok || item["type"] != "text" || item["text"] != "new constraint" {
-		t.Fatalf("input item = %#v", input[0])
-	}
-	c.handleLine(`{"jsonrpc":"2.0","id":1,"result":{}}`)
-	if err := <-done; err != nil {
-		t.Fatalf("steer: %v", err)
-	}
-}
-
 type fakeStdin struct {
 	mu   sync.Mutex
 	data []byte
