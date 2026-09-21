@@ -3080,12 +3080,6 @@ export function createJaDict(allowSignup: boolean): LandingDict {
       },
       sections: [
         {
-          heading: "Slack のユーザーもユーザーにあたる理由",
-          paragraphs: [
-            "Multica の Slack 連携では、Slack の各ユーザーがワークスペースのメンバーアカウントにひも付けられます。そのため、Slack 経由でエージェントとやり取りする人は、そのインスタンスのユーザーです。その人たちが組織外であれば、商用ライセンスが必要です。",
-          ],
-        },
-        {
           heading: "そのほかの条件",
           bullets: [
             "ブランド: 書面によるブランド表示の免除を受けていない限り、Multica のインターフェースに表示される Multica のロゴ、製品名、著作権・帰属表示を削除・変更しないでください。",

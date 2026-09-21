@@ -364,12 +364,6 @@ export function createZhDict(allowSignup: boolean): LandingDict {
     },
     sections: [
       {
-        heading: "为什么 Slack 用户也算用户",
-        paragraphs: [
-          "Multica 的 Slack 集成会把每个 Slack 用户绑定到你 workspace 中的一个成员账号。所以通过 Slack 和你的智能体协作的人，本身就是这个实例的用户。如果这些人在你的组织之外，就需要商业授权。",
-        ],
-      },
-      {
         heading: "其他条件",
         bullets: [
           "品牌：除非获得我们的书面品牌豁免，请保留 Multica 界面中显示的 Multica Logo、产品名称以及版权和署名信息。",

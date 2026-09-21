@@ -3101,12 +3101,6 @@ export function createKoDict(allowSignup: boolean): LandingDict {
       },
       sections: [
         {
-          heading: "Slack 사용자도 사용자로 보는 이유",
-          paragraphs: [
-            "Multica의 Slack 연동은 각 Slack 사용자를 워크스페이스의 멤버 계정과 연결합니다. 따라서 Slack을 통해 에이전트와 함께 일하는 사람은 그 인스턴스의 사용자입니다. 이들이 조직 외부 사람이라면 상용 라이선스가 필요합니다.",
-          ],
-        },
-        {
           heading: "기타 조건",
           bullets: [
             "브랜딩: 서면으로 브랜딩 면제를 받지 않았다면, Multica 인터페이스에 표시되는 Multica 로고, 제품명, 저작권 및 출처 표시를 제거하거나 변경하지 마세요.",

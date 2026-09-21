@@ -380,12 +380,6 @@ export function createEnDict(allowSignup: boolean): LandingDict {
     },
     sections: [
       {
-        heading: "Why Slack users count as users",
-        paragraphs: [
-          "Multica\u2019s Slack integration links each Slack user to a member account in your workspace. Anyone who works with your agents through Slack is therefore a user of your instance. If those people are outside your organization, you need a commercial license.",
-        ],
-      },
-      {
         heading: "Other conditions",
         bullets: [
           "Branding: keep the Multica logo, product name, and the copyright and attribution information shown in the Multica interface, unless we have given you a written branding waiver.",
