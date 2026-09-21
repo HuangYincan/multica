@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { AgentTask, TimelineEntry } from "@multica/core/types";
-import { commentRunOutput, buildCommentRunView, orderTimelineWithRuns, type CommentRun } from "./comment-runs";
+import { commentRunOutput, buildCommentRunView, finalAgentReplyByTask, orderTimelineWithRuns, type CommentRun } from "./comment-runs";
 
 const groupCommentRuns = (...args: Parameters<typeof buildCommentRunView>) => buildCommentRunView(...args).runs;
 
@@ -12,6 +12,31 @@ function task(id: string, overrides: Partial<AgentTask> = {}): AgentTask {
 function comment(id: string, overrides: Partial<TimelineEntry> = {}): TimelineEntry {
   return { id, type: "comment", actor_type: "member", actor_id: "user", created_at: "2026-09-07T00:00:00Z", ...overrides };
 }
+
+describe("finalAgentReplyByTask", () => {
+  it("keeps the latest eligible answer when newer task-owned rows are system or deleted comments", () => {
+    const answer = comment("answer", {
+      actor_type: "agent",
+      source_task_id: "run",
+      comment_type: "comment",
+    });
+    const failure = comment("failure", {
+      actor_type: "agent",
+      source_task_id: "run",
+      comment_type: "system",
+      created_at: "2026-09-07T00:01:00Z",
+    });
+    const deleted = comment("deleted", {
+      actor_type: "agent",
+      source_task_id: "run",
+      comment_type: "comment",
+      deleted_at: "2026-09-07T00:03:00Z",
+      created_at: "2026-09-07T00:02:00Z",
+    });
+
+    expect(finalAgentReplyByTask([answer, failure, deleted]).get("run")).toBe(answer);
+  });
+});
 
 describe("groupCommentRuns", () => {
   it.each(["queued", "dispatched", "running", "completed"] as const)("waits for a missing trigger before placing a %s run and its reply", (status) => {

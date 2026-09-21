@@ -48,7 +48,7 @@ import { CommentsFoldBar } from "./resolved-thread-bar";
 import { deriveThreadResolution } from "./thread-utils";
 import { RevisionConflictCompare } from "./revision-conflict-compare";
 import { InlineCommentRun, useInlineCommentRunState, type InlineCommentRunState } from "./inline-comment-run";
-import { agentReplyByTask, EMPTY_COMMENT_RUNS, showCommentRunInHeader, type CommentRun } from "./comment-runs";
+import { EMPTY_COMMENT_RUNS, finalAgentReplyByTask, showCommentRunInHeader, type CommentRun } from "./comment-runs";
 import { useCommentAnnotations } from "./use-comment-annotations";
 import { useRunCommentMotion } from "./use-run-comment-motion";
 
@@ -1065,7 +1065,7 @@ function CommentCardImpl({
 
   const allNestedReplies = replies;
   const deliveryRepliesByTask = useMemo(
-    () => agentReplyByTask([entry, ...allNestedReplies]),
+    () => finalAgentReplyByTask([entry, ...allNestedReplies]),
     [entry, allNestedReplies],
   );
   // What the thread shows. Tombstones are excluded from display and counts but

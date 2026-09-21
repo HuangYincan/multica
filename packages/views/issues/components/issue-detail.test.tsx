@@ -1305,7 +1305,16 @@ describe("IssueDetail (shared)", () => {
       content: "Original answer with the deployment risk included",
       created_at: "2026-01-16T00:02:00Z",
     };
-    mockApiObj.listTimeline.mockResolvedValue([root, steer, finalReply]);
+    const laterFailure: TimelineEntry = {
+      ...mockTimeline[1]!,
+      id: "steer-later-failure",
+      parent_id: root.id,
+      source_task_id: taskId,
+      content: "The already-published task later reported a failure",
+      comment_type: "system",
+      created_at: "2026-01-16T00:03:00Z",
+    };
+    mockApiObj.listTimeline.mockResolvedValue([root, steer, finalReply, laterFailure]);
     mockApiObj.listTasksByIssue.mockResolvedValue([{
       id: taskId,
       agent_id: "agent-1",
@@ -1331,6 +1340,85 @@ describe("IssueDetail (shared)", () => {
       expect(hasHighlightedCommentBackground(document.getElementById("comment-steer-final-reply"))).toBe(true);
     });
     expect(scrollToIndexSpy).toHaveBeenCalledWith({ index: 0, align: "start", offset: -16 });
+    expect(scrollIntoViewSpy).not.toHaveBeenCalled();
+  });
+
+  it("expands a folded reply-resolution thread before locating the delivered steer answer", async () => {
+    const taskId = "5a2e8d1c-7f9b-4e2a-9c1d-123456789abc";
+    const root: TimelineEntry = {
+      ...mockTimeline[0]!,
+      id: "folded-steer-root",
+      parent_id: null,
+      created_at: "2026-01-16T00:00:00Z",
+      agent_deliveries: [
+        { agent_id: "agent-1", agent_name: "Claude Agent", task_id: taskId, status: "delivered" },
+      ],
+    };
+    const finalReply: TimelineEntry = {
+      ...mockTimeline[1]!,
+      id: "folded-steer-final-reply",
+      parent_id: root.id,
+      source_task_id: taskId,
+      content: "Final answer hidden behind the resolution fold",
+      created_at: "2026-01-16T00:01:00Z",
+    };
+    const resolution: TimelineEntry = {
+      ...mockTimeline[0]!,
+      id: "folded-steer-resolution",
+      parent_id: root.id,
+      content: "Resolved after the answer",
+      created_at: "2026-01-16T00:02:00Z",
+      resolved_at: "2026-01-16T00:03:00Z",
+    };
+    mockApiObj.listTimeline.mockResolvedValue([root, finalReply, resolution]);
+
+    renderIssueDetail();
+    const locate = await screen.findByRole("button", { name: /View final reply/ });
+    expect(document.getElementById(`comment-${finalReply.id}`)).toBeNull();
+
+    fireEvent.click(locate);
+
+    await waitFor(() => {
+      expect(hasHighlightedCommentBackground(document.getElementById(`comment-${finalReply.id}`))).toBe(true);
+    });
+    expect(screen.getByRole("button", { name: "Collapse" })).toBeInTheDocument();
+    expect(scrollToIndexSpy).toHaveBeenCalledWith({ index: 0, align: "start", offset: -16 });
+  });
+
+  it("locates a delivered steer answer in flat deep-link mode", async () => {
+    const taskId = "6a2e8d1c-7f9b-4e2a-9c1d-123456789abc";
+    const root: TimelineEntry = {
+      ...mockTimeline[0]!,
+      id: "flat-steer-root",
+      parent_id: null,
+      created_at: "2026-01-16T00:00:00Z",
+      agent_deliveries: [
+        { agent_id: "agent-1", agent_name: "Claude Agent", task_id: taskId, status: "delivered" },
+      ],
+    };
+    const finalReply: TimelineEntry = {
+      ...mockTimeline[1]!,
+      id: "flat-steer-final-reply",
+      parent_id: root.id,
+      source_task_id: taskId,
+      content: "Final answer in the flat timeline",
+      created_at: "2026-01-16T00:01:00Z",
+    };
+    mockApiObj.listTimeline.mockResolvedValue([root, finalReply]);
+
+    renderIssueDetailWithHighlight(root.id);
+    const locate = await screen.findByRole("button", { name: /View final reply/ });
+    await waitFor(() => {
+      expect(hasHighlightedCommentBackground(document.getElementById(`comment-${root.id}`))).toBe(true);
+    });
+
+    scrollToIndexSpy.mockClear();
+    fireEvent.click(locate);
+
+    await waitFor(() => {
+      expect(hasHighlightedCommentBackground(document.getElementById(`comment-${finalReply.id}`))).toBe(true);
+    });
+    expect(scrollToIndexSpy).not.toHaveBeenCalled();
     expect(scrollIntoViewSpy).not.toHaveBeenCalled();
   });
 
