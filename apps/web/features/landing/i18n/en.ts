@@ -294,7 +294,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
     },
     entries: [
       {
-        version: "0.6.0",
+        version: "0.5.1",
         date: "2026-09-21",
         title: "Issue wakeup rules, mid-run steering, project starting branches, and steadier channels and runtimes",
         changes: [],

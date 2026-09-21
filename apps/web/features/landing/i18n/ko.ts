@@ -269,7 +269,7 @@ export function createKoDict(allowSignup: boolean): LandingDict {
       },
       entries: [
         {
-          version: "0.6.0",
+          version: "0.5.1",
           date: "2026-09-21",
           title: "Issue 자동 재개, 실행 중 작업 추가 지시, 저장소 시작 브랜치, 더 안정적인 채널과 런타임",
           changes: [],

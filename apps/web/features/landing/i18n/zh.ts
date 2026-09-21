@@ -294,7 +294,7 @@ export function createZhDict(allowSignup: boolean): LandingDict {
     },
     entries: [
       {
-        version: "0.6.0",
+        version: "0.5.1",
         date: "2026-09-21",
         title: "Issue 唤醒规则、运行中任务追加指令、项目仓库起始分支、渠道与运行时更稳",
         changes: [],

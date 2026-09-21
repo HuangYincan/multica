@@ -270,7 +270,7 @@ export function createJaDict(allowSignup: boolean): LandingDict {
       },
       entries: [
         {
-          version: "0.6.0",
+          version: "0.5.1",
           date: "2026-09-21",
           title: "Issue の自動再開、実行中タスクへの追加指示、リポジトリの開始ブランチ、チャネルとランタイムの安定化",
           changes: [],
