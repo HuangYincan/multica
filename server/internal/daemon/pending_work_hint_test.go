@@ -129,18 +129,9 @@ func TestHandleHeartbeatActionsNegotiatesTaskSteerServerCapability(t *testing.T)
 	}
 }
 
-func TestFormatCommentSteerInstructionPreservesActiveTaskContract(t *testing.T) {
+func TestFormatCommentSteerInstructionCarriesHumanSource(t *testing.T) {
 	got := formatCommentSteerInstruction("Alice\nAdmin", "keep the migration reversible")
-	want := `[STEER] Human "Alice Admin" left a new comment while you were working.
-
-Treat this comment as additional guidance for the same active task, not as a replacement:
-- Preserve and complete the original objective.
-- Merge this comment into the work and the turn's single final response.
-- Do not send a separate acknowledgement.
-- Replace or cancel the original objective only if the human explicitly asks for replacement or cancellation.
-
-Human comment:
-keep the migration reversible`
+	want := "[STEER] Human \"Alice Admin\" left a new comment while you were working:\n\nkeep the migration reversible"
 	if got != want {
 		t.Fatalf("steer instruction = %q, want %q", got, want)
 	}
