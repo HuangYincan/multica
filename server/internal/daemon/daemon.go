@@ -9311,16 +9311,7 @@ func formatCommentSteerInstruction(authorName, content string) string {
 	if authorName == "" {
 		authorName = "a user"
 	}
-	return fmt.Sprintf(`[STEER] Human %s left a new comment while you were working.
-
-Treat this comment as additional guidance for the same active task, not as a replacement:
-- Preserve and complete the original objective.
-- Merge this comment into the work and the turn's single final response.
-- Do not send a separate acknowledgement.
-- Replace or cancel the original objective only if the human explicitly asks for replacement or cancellation.
-
-Human comment:
-%s`, strconv.Quote(authorName), content)
+	return fmt.Sprintf("[STEER] Human %s left a new comment while you were working:\n\n%s", strconv.Quote(authorName), content)
 }
 
 func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, prompt string, opts agent.ExecOptions, taskLog *slog.Logger, taskID, codexHome string, msgSeq *atomic.Int32) (agent.Result, int32, error) {
