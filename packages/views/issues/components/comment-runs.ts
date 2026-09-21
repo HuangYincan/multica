@@ -22,6 +22,25 @@ export function isActiveCommentRun(task: AgentTask): boolean {
   return ["queued", "dispatched", "waiting_local_directory", "running"].includes(task.status);
 }
 
+/**
+ * Index the published agent reply for each task. A run has one final comment,
+ * but choosing the latest row keeps mixed-version and retry data deterministic
+ * in the same way as the existing run projection.
+ */
+export function agentReplyByTask(
+  timeline: readonly TimelineEntry[],
+): ReadonlyMap<string, TimelineEntry> {
+  const replies = new Map<string, TimelineEntry>();
+  for (const entry of timeline) {
+    if (entry.type !== "comment" || !entry.source_task_id || entry.actor_type !== "agent") continue;
+    const prior = replies.get(entry.source_task_id);
+    if (!prior || entry.created_at > prior.created_at || (entry.created_at === prior.created_at && entry.id > prior.id)) {
+      replies.set(entry.source_task_id, entry);
+    }
+  }
+  return replies;
+}
+
 /** Published replies own their log entry even while the agent finishes its run. */
 export function showCommentRunInHeader(run: CommentRun): boolean {
   return run.hasReply && (isActiveCommentRun(run.task) || run.task.status === "completed");
@@ -55,14 +74,7 @@ export function buildCommentRunView(
     }
     return entry?.id;
   };
-  const replies = new Map<string, TimelineEntry>();
-  for (const entry of comments.values()) {
-    if (!entry.source_task_id || entry.actor_type !== "agent") continue;
-    const prior = replies.get(entry.source_task_id);
-    if (!prior || entry.created_at > prior.created_at || (entry.created_at === prior.created_at && entry.id > prior.id)) {
-      replies.set(entry.source_task_id, entry);
-    }
-  }
+  const replies = agentReplyByTask(timeline);
   const byTask = new Map(inlineTasks.map((task) => [task.id, task]));
   const priorAnchors = new Map([...previous.values()].flatMap((runs) => runs.map((run) => [run.task.id, run.anchorCommentId] as const)));
   const placements: CommentRun[] = [];

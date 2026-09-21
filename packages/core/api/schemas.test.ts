@@ -29,6 +29,7 @@ import {
   ChatPendingTaskSchema,
   ChatSessionListSchema,
   ChatSessionSchema,
+  CommentSchema,
   PrioritizeQueuedChatTaskResponseSchema,
   CreateFeedbackResponseSchema,
   DuplicateIssueErrorBodySchema,
@@ -541,6 +542,54 @@ describe("IssueTriggerPreviewSchema", () => {
 });
 
 describe("TimelineEntriesSchema", () => {
+  it("preserves optional and nullable delivery task ids across server versions", () => {
+    const baseComment = {
+      type: "comment",
+      id: "comment-1",
+      actor_type: "member",
+      actor_id: "user-1",
+      created_at: "2026-01-01T00:00:00Z",
+      content: "Steered input",
+    };
+    const parsed = TimelineEntriesSchema.parse([
+      {
+        ...baseComment,
+        agent_deliveries: [
+          { agent_id: "a1", agent_name: "Walt", task_id: "task-1", status: "delivered" },
+          { agent_id: "a2", agent_name: "Bob", task_id: null, status: "follow_up" },
+          { agent_id: "a3", agent_name: "Kim", status: "pending" },
+        ],
+      },
+    ]);
+
+    expect(parsed[0]?.agent_deliveries?.map((delivery) => delivery.task_id)).toEqual([
+      "task-1",
+      null,
+      undefined,
+    ]);
+  });
+
+  it("keeps old comment responses valid when delivery task_id is absent", () => {
+    const parsed = CommentSchema.parse({
+      id: "comment-1",
+      issue_id: "issue-1",
+      author_type: "member",
+      author_id: "user-1",
+      content: "Legacy receipt",
+      type: "comment",
+      parent_id: null,
+      reactions: [],
+      attachments: [],
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+      agent_deliveries: [
+        { agent_id: "a1", agent_name: "Walt", status: "delivered" },
+      ],
+    });
+
+    expect(parsed.agent_deliveries?.[0]?.task_id).toBeUndefined();
+  });
+
   it("preserves source_task_id for agent failure comments", () => {
     const parsed = TimelineEntriesSchema.parse([
       {

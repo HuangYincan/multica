@@ -380,6 +380,60 @@ describe("useIssueTimeline", () => {
     ]);
   });
 
+  it("preserves delivery task ids from realtime receipt updates", () => {
+    queryState.data = [
+      {
+        type: "comment",
+        id: "c1",
+        actor_type: "member",
+        actor_id: "user-1",
+        content: "steer this run",
+        parent_id: null,
+        created_at: "2026-05-06T01:00:00Z",
+        updated_at: "2026-05-06T01:00:00Z",
+        revision: 1,
+        reactions: [],
+        attachments: [],
+      },
+    ];
+    renderHook(() => useIssueTimeline("issue-1", "user-1"));
+
+    act(() => {
+      wsHandlers.get("comment:updated")!({
+        comment: {
+          id: "c1",
+          issue_id: "issue-1",
+          author_type: "member",
+          author_id: "user-1",
+          content: "steer this run",
+          parent_id: null,
+          created_at: "2026-05-06T01:00:00Z",
+          updated_at: "2026-05-06T02:00:00Z",
+          revision: 2,
+          type: "comment",
+          reactions: [],
+          attachments: [],
+          agent_deliveries: [
+            {
+              agent_id: "agent-1",
+              agent_name: "Walt",
+              task_id: "task-1",
+              status: "delivered",
+            },
+          ],
+        },
+      });
+    });
+
+    expect(cacheUpdates.last).toMatchObject([
+      {
+        agent_deliveries: [
+          { agent_id: "agent-1", task_id: "task-1", status: "delivered" },
+        ],
+      },
+    ]);
+  });
+
   it("refetches instead of applying an unversioned event over versioned cache state", () => {
     queryState.data = [{
       type: "comment",

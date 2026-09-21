@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderWithI18n } from "../../test/i18n";
@@ -70,6 +70,49 @@ describe("CommentDeliveryReceipts", () => {
     expect(screen.getByText("Waiting to deliver to Walt's current work")).toBeInTheDocument();
     expect(screen.getByText(/Delivered to Bob's current work/)).toBeInTheDocument();
     expect(screen.getByText("Kim will handle this in follow-up work")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("locates only delivered recipients that already have a final reply", () => {
+    const onLocateComment = vi.fn();
+    const repliesByTask = new Map([
+      ["task-1", { id: "reply-1", comment_type: "comment" } as any],
+      ["task-2", { id: "reply-2", comment_type: "comment" } as any],
+      ["task-deleted", { id: "reply-deleted", comment_type: "comment", deleted_at: "2026-01-01T00:00:00Z" } as any],
+      ["task-failed", { id: "failure-comment", comment_type: "system" } as any],
+    ]);
+    renderWithI18n(
+      <CommentDeliveryReceipts
+        entry={{
+          agent_deliveries: [
+            { agent_id: "a1", agent_name: "Walt", task_id: "task-1", status: "delivered" },
+            { agent_id: "a2", agent_name: "Bob", task_id: "task-2", status: "delivered" },
+            { agent_id: "a3", agent_name: "Kim", task_id: "task-1", status: "pending" },
+            { agent_id: "a4", agent_name: "Eve", task_id: "task-2", status: "follow_up" },
+            { agent_id: "a5", agent_name: "Running", task_id: "task-running", status: "delivered" },
+            { agent_id: "a6", agent_name: "Deleted", task_id: "task-deleted", status: "delivered" },
+            { agent_id: "a7", agent_name: "Failed", task_id: "task-failed", status: "delivered" },
+            { agent_id: "a8", agent_name: "Cancelled", task_id: "task-cancelled", status: "delivered" },
+            { agent_id: "a9", agent_name: "Edited", task_id: "task-edited", status: "delivered" },
+          ],
+        } as any}
+        repliesByTask={repliesByTask}
+        onLocateComment={onLocateComment}
+      />,
+    );
+
+    const links = screen.getAllByRole("button", { name: /View final reply/ });
+    expect(links).toHaveLength(2);
+    fireEvent.click(links[0]!);
+    fireEvent.click(links[1]!);
+    expect(onLocateComment.mock.calls).toEqual([["reply-1"], ["reply-2"]]);
+    expect(screen.getByText("Waiting to deliver to Kim's current work")).toBeInTheDocument();
+    expect(screen.getByText("Eve will handle this in follow-up work")).toBeInTheDocument();
+    expect(screen.getByText(/Delivered to Running's current work/).closest("button")).toBeNull();
+    expect(screen.getByText(/Delivered to Deleted's current work/).closest("button")).toBeNull();
+    expect(screen.getByText(/Delivered to Failed's current work/).closest("button")).toBeNull();
+    expect(screen.getByText(/Delivered to Cancelled's current work/).closest("button")).toBeNull();
+    expect(screen.getByText(/Delivered to Edited's current work/).closest("button")).toBeNull();
   });
 });
 

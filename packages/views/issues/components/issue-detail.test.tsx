@@ -1279,6 +1279,61 @@ describe("IssueDetail (shared)", () => {
     expect(mockApiObj.listTaskMessages).toHaveBeenCalledWith(taskId);
   });
 
+  it("scrolls to and highlights the final reply from a delivered steer receipt", async () => {
+    const taskId = "4a2e8d1c-7f9b-4e2a-9c1d-123456789abc";
+    const root: TimelineEntry = {
+      ...mockTimeline[0]!,
+      id: "steer-root",
+      parent_id: null,
+      created_at: "2026-01-16T00:00:00Z",
+    };
+    const steer: TimelineEntry = {
+      ...mockTimeline[0]!,
+      id: "steer-input",
+      parent_id: root.id,
+      content: "Also include the deployment risk",
+      created_at: "2026-01-16T00:01:00Z",
+      agent_deliveries: [
+        { agent_id: "agent-1", agent_name: "Claude Agent", task_id: taskId, status: "delivered" },
+      ],
+    };
+    const finalReply: TimelineEntry = {
+      ...mockTimeline[1]!,
+      id: "steer-final-reply",
+      parent_id: root.id,
+      source_task_id: taskId,
+      content: "Original answer with the deployment risk included",
+      created_at: "2026-01-16T00:02:00Z",
+    };
+    mockApiObj.listTimeline.mockResolvedValue([root, steer, finalReply]);
+    mockApiObj.listTasksByIssue.mockResolvedValue([{
+      id: taskId,
+      agent_id: "agent-1",
+      runtime_id: "runtime-1",
+      issue_id: "issue-1",
+      status: "completed",
+      priority: 0,
+      created_at: root.created_at,
+      started_at: root.created_at,
+      dispatched_at: root.created_at,
+      completed_at: finalReply.created_at,
+      result: { comment: finalReply.content },
+      error: null,
+      trigger_comment_id: root.id,
+      delivered_comment_ids: [root.id],
+    } as AgentTask]);
+
+    renderIssueDetail();
+    const locate = await screen.findByRole("button", { name: /View final reply/ });
+    fireEvent.click(locate);
+
+    await waitFor(() => {
+      expect(hasHighlightedCommentBackground(document.getElementById("comment-steer-final-reply"))).toBe(true);
+    });
+    expect(scrollToIndexSpy).toHaveBeenCalledWith({ index: 0, align: "start", offset: -16 });
+    expect(scrollIntoViewSpy).not.toHaveBeenCalled();
+  });
+
   it("places one coalesced queued block after the batch's latest reply", async () => {
     const root = mockTimeline[0]!;
     const first = { ...mockTimeline[1]!, id: "queued-first", parent_id: root.id,

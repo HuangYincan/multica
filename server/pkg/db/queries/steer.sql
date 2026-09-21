@@ -133,7 +133,7 @@ FROM comment_agent_delivery
 WHERE task_id = @task_id AND status = 'delivered';
 
 -- name: ListCommentAgentDeliveries :many
-SELECT d.comment_id, d.agent_id, a.name AS agent_name, d.status, d.delivered_at
+SELECT d.comment_id, d.agent_id, a.name AS agent_name, d.task_id, d.status, d.delivered_at
 FROM comment_agent_delivery d
 JOIN agent a ON a.id = d.agent_id
 WHERE d.comment_id = ANY(@comment_ids::uuid[])

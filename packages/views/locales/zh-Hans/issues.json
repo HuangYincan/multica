@@ -551,6 +551,7 @@
     "trigger_current_safe_point": "将在下一个安全边界补充当前工作。",
     "delivery_pending": "等待送达 {{name}} 的当前工作",
     "delivery_delivered": "已送达 {{name}} 的当前工作 · {{time}}",
+    "delivery_view_reply": "查看最终回复",
     "delivery_follow_up": "{{name}} 将在后续工作中处理",
     "trigger_will_start_count_other": "发送后 {{count}} 个智能体开始工作",
     "trigger_starts_now": "立即开始。",
