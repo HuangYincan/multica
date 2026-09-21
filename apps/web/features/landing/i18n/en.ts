@@ -156,8 +156,8 @@ export function createEnDict(allowSignup: boolean): LandingDict {
 
   openSource: {
     label: "Source available",
-    headlineLine1: "Source available",
-    headlineLine2: "for all.",
+    headlineLine1: "Every line,",
+    headlineLine2: "on your terms.",
     description:
       "Multica\u2019s source code is public. Inspect every line, self-host it for free, and shape the future of human + agent collaboration. Offering Multica to others as a hosted service requires a commercial license.",
     cta: "Star on GitHub",
@@ -452,7 +452,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "PostHog: product analytics and crash reports",
           "Google: sign-in, if you choose Sign in with Google",
           "Large language model providers: the AI features described above",
-          "Integrations you connect, such as Slack, Lark, DingTalk, WeCom, Telegram, GitHub, or GitLab: the data you choose to exchange with them, which is also subject to their own terms",
+          "Integrations you connect, such as Slack, Lark, DingTalk, WeCom, Telegram, GitHub, GitLab, or apps connected through Composio: the data you choose to exchange with them, which is also subject to their own terms",
           "A buyer or successor, if Multica is involved in a merger, acquisition, or sale of assets",
         ],
       },

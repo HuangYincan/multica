@@ -156,8 +156,8 @@ export function createZhDict(allowSignup: boolean): LandingDict {
 
   openSource: {
     label: "源码公开",
-    headlineLine1: "源码公开，",
-    headlineLine2: "人人可见。",
+    headlineLine1: "每一行代码，",
+    headlineLine2: "都由你掌控。",
     description:
       "Multica 的源代码完全公开。审查每一行代码，免费自托管，塑造人类 + 智能体 协作的未来。把 Multica 作为托管服务提供给他人，需要商业授权。",
     cta: "在 GitHub 上 Star",
@@ -437,7 +437,7 @@ export function createZhDict(allowSignup: boolean): LandingDict {
           "PostHog：产品分析和崩溃报告",
           "Google：当你选择使用 Google 登录时",
           "大语言模型服务商：上文所述的 AI 功能",
-          "你连接的集成，如 Slack、飞书、钉钉、企业微信、Telegram、GitHub、GitLab：你选择通过它们收发的数据，同时受这些服务商自身条款的约束",
+          "你连接的集成，如 Slack、飞书、钉钉、企业微信、Telegram、GitHub、GitLab、通过 Composio 连接的应用：你选择通过它们收发的数据，同时受这些服务商自身条款的约束",
           "买方或继任方：如果 Multica 发生合并、收购或资产出售",
         ],
       },

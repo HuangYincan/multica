@@ -49,6 +49,18 @@ describe("trust pages copy", () => {
     }
   });
 
+  it("keeps every locale's FAQ in step, including the licensing link", () => {
+    const [en, ...others] = dicts;
+    for (const t of others) {
+      expect(t.faq.items).toHaveLength(en!.faq.items.length);
+    }
+    for (const t of dicts) {
+      expect(t.faq.items.some((i) => i.answer.includes("](/licensing)"))).toBe(
+        true,
+      );
+    }
+  });
+
   it("translates the licensing and privacy pages in every locale", () => {
     const [en, ...others] = dicts;
     for (const t of others) {

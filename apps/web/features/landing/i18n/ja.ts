@@ -158,8 +158,8 @@ export function createJaDict(allowSignup: boolean): LandingDict {
     },
     openSource: {
       label: "ソースコード公開",
-      headlineLine1: "すべての人に、",
-      headlineLine2: "ソースコードを。",
+      headlineLine1: "すべてのコードを、",
+      headlineLine2: "あなたの手に。",
       description:
         "Multica のソースコードは公開されています。すべてのコードを確認し、無料でセルフホストし、人間と AI エージェントが協働する未来を、ともに形づくっていけます。Multica をホスティングサービスとして他者に提供する場合は、商用ライセンスが必要です。",
       cta: "GitHub でスターを付ける",
@@ -200,6 +200,11 @@ export function createJaDict(allowSignup: boolean): LandingDict {
           question: "セルフホストが必須ですか、それともクラウド版もありますか?",
           answer:
             "どちらも可能です。Docker Compose や Kubernetes で自社インフラにセルフホストすることも、当社がホストするクラウド版を使うこともできます。データをどこに置くかは、あなたの選択次第です。",
+        },
+        {
+          question: "Multica は商用利用できますか?",
+          answer:
+            "はい。自社の組織内で Multica を使うのは無料です。チーム全体のためにセルフホストする場合も同様です。商用ライセンスが必要になるのは、ホスティングサービスやマネージドサービスとして、組織外の人に Multica を提供する場合だけです。よくあるケースは[ライセンスについて](/licensing)で説明しています。",
         },
         {
           question:
@@ -3152,7 +3157,7 @@ export function createJaDict(allowSignup: boolean): LandingDict {
             "PostHog: 製品分析とクラッシュレポート",
             "Google: Google でのサインインを選んだ場合",
             "大規模言語モデルプロバイダー: 上記の AI 機能",
-            "お客様が接続した連携サービス(Slack、Lark、DingTalk、WeCom、Telegram、GitHub、GitLab など): お客様がそれらを通じて送受信するデータ。各サービスの規約も適用されます",
+            "お客様が接続した連携サービス(Slack、Lark、DingTalk、WeCom、Telegram、GitHub、GitLab、Composio 経由で接続したアプリなど): お客様がそれらを通じて送受信するデータ。各サービスの規約も適用されます",
             "買収者または承継者: Multica が合併、買収、事業譲渡の対象となった場合",
           ],
         },

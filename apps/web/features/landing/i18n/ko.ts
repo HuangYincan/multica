@@ -158,8 +158,8 @@ export function createKoDict(allowSignup: boolean): LandingDict {
     },
     openSource: {
       label: "소스 공개",
-      headlineLine1: "모두에게 공개된",
-      headlineLine2: "소스 코드.",
+      headlineLine1: "모든 코드를,",
+      headlineLine2: "여러분의 방식대로.",
       description:
         "Multica의 소스 코드는 공개되어 있습니다. 코드를 직접 들여다보고, 무료로 셀프 호스팅하고, 사람과 AI 에이전트가 함께 일하는 방식을 같이 만들어 갈 수 있습니다. Multica를 다른 사람에게 호스팅 서비스로 제공하려면 상용 라이선스가 필요합니다.",
       cta: "GitHub에서 스타 누르기",
@@ -200,6 +200,11 @@ export function createKoDict(allowSignup: boolean): LandingDict {
           question: "셀프 호스팅만 가능한가요, 클라우드 버전도 있나요?",
           answer:
             "둘 다 가능합니다. Docker Compose나 Kubernetes로 자체 인프라에 직접 호스팅할 수도 있고, Multica가 운영하는 클라우드 버전을 그대로 쓸 수도 있습니다. 데이터를 어디에 둘지는 직접 선택할 수 있습니다.",
+        },
+        {
+          question: "Multica를 상업적으로 사용할 수 있나요?",
+          answer:
+            "네. 조직 내부에서 Multica를 사용하는 것은 무료이며, 팀 전체를 위해 셀프 호스팅하는 경우도 마찬가지입니다. 상용 라이선스는 호스팅 서비스나 매니지드 서비스처럼 조직 외부 사람들에게 Multica를 제공할 때만 필요합니다. 자주 묻는 사례는 [라이선스 안내](/licensing)에서 확인하세요.",
         },
         {
           question: "코딩 에이전트를 직접 쓰는 것과 무엇이 다른가요?",
@@ -3173,7 +3178,7 @@ export function createKoDict(allowSignup: boolean): LandingDict {
             "PostHog: 제품 분석 및 충돌 보고서",
             "Google: Google 로그인을 선택한 경우",
             "대규모 언어 모델 제공자: 위에서 설명한 AI 기능",
-            "여러분이 연결한 연동 서비스(Slack, Lark, DingTalk, WeCom, Telegram, GitHub, GitLab 등): 여러분이 이를 통해 주고받는 데이터이며, 각 서비스의 약관도 적용됩니다",
+            "여러분이 연결한 연동 서비스(Slack, Lark, DingTalk, WeCom, Telegram, GitHub, GitLab, Composio로 연결한 앱 등): 여러분이 이를 통해 주고받는 데이터이며, 각 서비스의 약관도 적용됩니다",
             "인수자 또는 승계자: Multica가 합병, 인수, 자산 매각의 대상이 되는 경우",
           ],
         },
