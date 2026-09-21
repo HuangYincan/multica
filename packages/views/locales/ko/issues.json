@@ -551,6 +551,7 @@
     "trigger_current_safe_point": "다음 안전 지점에서 현재 작업에 추가됩니다.",
     "delivery_pending": "{{name}}의 현재 작업에 전달 대기 중",
     "delivery_delivered": "{{name}}의 현재 작업에 전달됨 · {{time}}",
+    "delivery_view_reply": "최종 답변 보기",
     "delivery_follow_up": "{{name}}이 후속 작업에서 처리합니다",
     "trigger_will_start_count_other": "전송 후 에이전트 {{count}}개가 작업을 시작합니다",
     "trigger_starts_now": "바로 시작합니다.",

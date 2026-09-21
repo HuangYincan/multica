@@ -1736,9 +1736,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     return () => cancelAnimationFrame(rafId);
   }, [pendingPostedCommentId, items, replyToRoot, isFlatTimeline, scrollContainerEl]);
   const jumpFlashTimerRef = useRef<number | null>(null);
+  const locateCommentRafRef = useRef<number | null>(null);
   useEffect(
     () => () => {
       if (jumpFlashTimerRef.current !== null) window.clearTimeout(jumpFlashTimerRef.current);
+      if (locateCommentRafRef.current !== null) cancelAnimationFrame(locateCommentRafRef.current);
     },
     [],
   );
@@ -1769,6 +1771,56 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
       jumpFlashTimerRef.current = window.setTimeout(() => setHighlightedId(null), 2000);
     },
     [isFlatTimeline, items, scrollContainerEl],
+  );
+
+  const locateTimelineComment = useCallback(
+    (commentId: string) => {
+      const rootId = replyToRoot.get(commentId) ?? commentId;
+      const index = items.findIndex((item) => item.id === rootId);
+      if (index < 0) return;
+
+      // The receipt is visible, so its thread is mounted and expanded. The
+      // answer can still be behind a reply-resolution fold; open that fold
+      // before waiting for React to materialize the target row.
+      if (!document.getElementById(`comment-${commentId}`) && rootId !== commentId) {
+        toggleResolvedExpand(rootId, true);
+      }
+      if (!isFlatTimeline) {
+        virtuosoRef.current?.scrollToIndex({ index, align: "start", offset: -16 });
+      }
+
+      setHighlightedId(commentId);
+      if (jumpFlashTimerRef.current !== null) window.clearTimeout(jumpFlashTimerRef.current);
+      jumpFlashTimerRef.current = window.setTimeout(() => setHighlightedId(null), 2500);
+      if (locateCommentRafRef.current !== null) cancelAnimationFrame(locateCommentRafRef.current);
+
+      let attempts = 0;
+      let last = -1;
+      const center = () => {
+        const element = document.getElementById(`comment-${commentId}`);
+        const container = scrollContainerEl;
+        if (!element || !container) {
+          if (++attempts < 30) locateCommentRafRef.current = requestAnimationFrame(center);
+          return;
+        }
+        const containerRect = container.getBoundingClientRect();
+        const elementRect = element.getBoundingClientRect();
+        const target = Math.max(
+          0,
+          container.scrollTop + (elementRect.top - containerRect.top)
+            - (container.clientHeight - elementRect.height) / 2,
+        );
+        container.scrollTop = target;
+        if (Math.abs(target - last) > 1 && ++attempts < 30) {
+          last = target;
+          locateCommentRafRef.current = requestAnimationFrame(center);
+        } else {
+          locateCommentRafRef.current = null;
+        }
+      };
+      locateCommentRafRef.current = requestAnimationFrame(center);
+    },
+    [isFlatTimeline, items, replyToRoot, scrollContainerEl, toggleResolvedExpand],
   );
 
   const {
@@ -2664,6 +2716,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             onCopyLink: actions.copyCommentLink,
             onCollapseResolved: reply.resolved_at ? () => toggleResolvedExpand(reply.id, false) : undefined,
             expandedResolvedIds: expandedResolved, onResolvedExpandChange: toggleResolvedExpand,
+            onLocateComment: locateTimelineComment,
             highlightedCommentId: highlightedId,
             runs: commentRuns.get(reply.id) ?? EMPTY_COMMENT_RUNS, enteringRunIds,
           } : undefined} />}
@@ -2703,6 +2756,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             onCollapseResolved={isResolved ? () => toggleResolvedExpand(item.id, false) : undefined}
             expandedResolvedIds={expandedResolved}
             onResolvedExpandChange={toggleResolvedExpand}
+            onLocateComment={locateTimelineComment}
             highlightedCommentId={highlightedId}
           />
         </div>

@@ -87,8 +87,13 @@ type CommentResponse struct {
 }
 
 type CommentAgentDeliveryResponse struct {
-	AgentID     string  `json:"agent_id"`
-	AgentName   string  `json:"agent_name"`
+	AgentID   string `json:"agent_id"`
+	AgentName string `json:"agent_name"`
+	// TaskID links a delivered steer receipt to the final comment whose
+	// source_task_id names the same run. It is nullable for receipts created
+	// directly as follow-up and omitted by older servers, so mixed-version
+	// clients must treat it as optional read-side metadata rather than state.
+	TaskID      *string `json:"task_id,omitempty"`
 	Status      string  `json:"status"` // pending | delivered | follow_up
 	DeliveredAt *string `json:"delivered_at,omitempty"`
 }
@@ -2005,7 +2010,7 @@ func (h *Handler) groupCommentAgentDeliveries(ctx context.Context, commentIDs []
 			status = "pending"
 		}
 		grouped[uuidToString(row.CommentID)] = append(grouped[uuidToString(row.CommentID)], CommentAgentDeliveryResponse{
-			AgentID: uuidToString(row.AgentID), AgentName: row.AgentName, Status: status,
+			AgentID: uuidToString(row.AgentID), AgentName: row.AgentName, TaskID: uuidToPtr(row.TaskID), Status: status,
 			DeliveredAt: timestampToPtr(row.DeliveredAt),
 		})
 	}

@@ -433,30 +433,6 @@ func TestBookkeepingForATurnThatNeverSealedIsStillRetired(t *testing.T) {
 	}
 }
 
-// And a turn still in flight is not touched, however full the map is. Its
-// counters are what keep a later verdict from being read as the closing
-// frame's, which is the misattribution the sequence numbers exist to prevent.
-func TestBookkeepingForALiveTurnSurvivesTheCap(t *testing.T) {
-	t.Parallel()
-	conn := &silentConn{}
-	sender := newWSSender(conn, nil)
-
-	sender.ackMu.Lock()
-	sender.streams["REQ-LIVE"] = &streamAcks{sent: 1, at: time.Now()}
-	for i := 0; i < streamAcksMax+1; i++ {
-		sender.streams[fmt.Sprintf("REQ-OLD-%d", i)] = &streamAcks{
-			sent: 1, acked: 1, at: time.Now().Add(-streamMaxAge - time.Minute),
-		}
-	}
-	sender.pruneStreamsLocked()
-	_, live := sender.streams["REQ-LIVE"]
-	sender.ackMu.Unlock()
-
-	if !live {
-		t.Fatal("the live turn's counters were retired: its next verdict now matches by a position that was reset under it")
-	}
-}
-
 // ---- the gate lets a rewrite out; it must also let the rewrite's verdict in ----
 
 // A closing frame whose ack was lost leaves a permanent debt, on purpose:

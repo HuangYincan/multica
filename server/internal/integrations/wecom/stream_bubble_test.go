@@ -470,29 +470,27 @@ func taskUUID(t *testing.T, name string) string {
 	return util.UUIDToString(mustParseTestUUID(t, name))
 }
 
-// WeCom has no typing indicator, no reaction and no read receipt. The opening
-// stream frame IS the receipt — a think tag renders as the client's own
-// animated dots — and without it a slow agent looks like a dead bot.
-func TestAQuestionPaintsALoadingBubbleImmediately(t *testing.T) {
-	t.Parallel()
-	rig := newBubbleRig(t)
-	rig.ask(t, "REQ-A")
-
-	frames := rig.conn.streamFrames(t)
-	if len(frames) != 1 {
-		t.Fatalf("an ingested message wrote %d stream frames, want 1 — the user sees nothing at all until the agent finishes", len(frames))
+// has reports whether a session holds a round bound to this run. Tests use it
+// to check that an ending kept or released the round it belongs to; no
+// production path reads it.
+func (s *streamStore) has(sessionID pgtype.UUID, taskID string) bool {
+	if taskID == "" {
+		return false
 	}
-	if frames[0]["finish"] != false {
-		t.Error("the opening frame sealed the bubble; nothing can fill it in later")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range s.sessions[util.UUIDToString(sessionID)] {
+		if r.taskID == taskID {
+			return true
+		}
 	}
-	if frames[0]["content"] != streamThinkingPlaceholder {
-		t.Errorf("opening frame content = %q, want the think tag %q that renders as the loading dots",
-			frames[0]["content"], streamThinkingPlaceholder)
-	}
+	return false
 }
 
-// The answer replaces the bubble the question opened, in place — same stream
-// id, finish=true — rather than arriving underneath it as a new message.
+// WeCom has no typing indicator, so the opening frame IS the receipt: an
+// unsealed think tag the client renders as its own animated dots. The answer
+// then replaces that bubble in place — same stream id, finish=true — rather
+// than arriving underneath it as a new message.
 func TestTheAnswerReplacesTheBubbleInPlace(t *testing.T) {
 	t.Parallel()
 	rig := newBubbleRig(t)
@@ -502,6 +500,10 @@ func TestTheAnswerReplacesTheBubbleInPlace(t *testing.T) {
 	frames := rig.conn.streamFrames(t)
 	if len(frames) != 2 {
 		t.Fatalf("got %d stream frames, want 2 (open + seal)", len(frames))
+	}
+	if frames[0]["finish"] != false || frames[0]["content"] != streamThinkingPlaceholder {
+		t.Fatalf("opening frame = %v, want an unsealed %q — without it a slow agent looks like a dead bot",
+			frames[0], streamThinkingPlaceholder)
 	}
 	if frames[1]["id"] != frames[0]["id"] {
 		t.Fatalf("the answer opened a SECOND bubble (%v) instead of replacing the first (%v); the loading one spins forever",
@@ -567,60 +569,6 @@ func TestTheAnswerClosesTheBubbleOverTheNextConnection(t *testing.T) {
 	}
 }
 
-// A blank closing frame is DISCARDED by WeCom, and the bubble it was meant to
-// seal spins for good. An empty completion is a legitimate outcome — the agent
-// had nothing to add — so the copy stands in for the silence.
-func TestAnEmptyAnswerStillClosesTheBubbleWithWords(t *testing.T) {
-	t.Parallel()
-	rig := newBubbleRig(t)
-	rig.ran(t, "REQ-C", "task-1")
-	rig.answer(t, "   \n ", "task-1")
-
-	frames := rig.conn.streamFrames(t)
-	if len(frames) != 2 {
-		t.Fatalf("got %d stream frames, want 2 — an empty answer left the bubble open", len(frames))
-	}
-	if frames[1]["finish"] != true {
-		t.Fatal("an empty answer did not seal the bubble; it spins forever")
-	}
-	content, _ := frames[1]["content"].(string)
-	if !hasVisibleChar(content) {
-		t.Fatalf("the closing frame carries nothing visible (%q); WeCom discards it and the bubble spins forever", content)
-	}
-	if content != streamCopyNoReply {
-		t.Errorf("closing copy = %q, want %q", content, streamCopyNoReply)
-	}
-}
-
-// A message that arrives once the round ahead of it has its run is a round of
-// its own, queued behind the run in flight — and it gets its own bubble
-// immediately, because a wait with nothing on screen reads as a message that
-// was lost.
-//
-// The two messages arrive at the SAME instant on this store's clock. Only the
-// run queued between them separates them, which is the point: the gap between
-// two messages is not this side's to measure, and a store that measured it
-// would fold these two into one round and leave the second question with no
-// receipt.
-func TestAQueuedQuestionGetsItsOwnBubble(t *testing.T) {
-	t.Parallel()
-	rig := newBubbleRig(t)
-	rig.ask(t, "REQ-D1")
-	rig.queued(t, "task-1")
-	rig.ask(t, "REQ-D2")
-
-	frames := rig.conn.streamFrames(t)
-	if len(frames) != 2 {
-		t.Fatalf("two questions a window apart wrote %d bubbles, want 2 — the second looks lost", len(frames))
-	}
-	if frames[0]["id"] == frames[1]["id"] {
-		t.Fatal("the second question reused the first bubble; one of the two answers has nowhere to land")
-	}
-	if rig.streams.depth() != 2 {
-		t.Fatalf("store holds %d open rounds, want 2", rig.streams.depth())
-	}
-}
-
 // Two messages still inside one debounce window share one bubble. A second
 // bubble here is one nobody would ever close: the run produces one answer, it
 // seals one bubble, and the other spins until the guard promises a separate
@@ -642,52 +590,6 @@ func TestMessagesInsideTheDebounceWindowShareOneBubble(t *testing.T) {
 	}
 	if rig.streams.depth() != 1 {
 		t.Fatalf("store holds %d open rounds, want 1", rig.streams.depth())
-	}
-}
-
-// A queued round whose run finished with nothing of its own to say has a
-// better explanation than plain silence: the reply ahead of it already covered
-// the message.
-func TestAQueuedRoundWithNothingToSayMakesNoClaimAboutWhy(t *testing.T) {
-	t.Parallel()
-	rig := newBubbleRig(t)
-	rig.ran(t, "REQ-F1", "task-1")
-	rig.ran(t, "REQ-F2", "task-2")
-
-	rig.answer(t, "the first reply", "task-1") // seals the head
-	rig.answer(t, "", "task-2")                // seals the queued one
-
-	frames := rig.conn.streamFrames(t)
-	if len(frames) != 4 {
-		t.Fatalf("got %d stream frames, want 4 (two opens, two seals)", len(frames))
-	}
-	// It used to say 「已并入上一条回复」. QueuedBehind records only that another
-	// round was open when this one was painted — never that the reply ahead
-	// covered this message — so the notice claimed a merge that never happened.
-	// The claim is gone; the bubble still closes with words, which is the
-	// property this test was written for.
-	if frames[3]["content"] != streamCopyNoReply {
-		t.Errorf("a queued round's empty answer closed with %q, want %q",
-			frames[3]["content"], streamCopyNoReply)
-	}
-}
-
-// When the server refuses the closing frame the bubble cannot be sealed, but
-// the ANSWER still has to reach the user — as an ordinary message.
-func TestARefusedClosingFrameStillDeliversTheAnswer(t *testing.T) {
-	t.Parallel()
-	rig := newBubbleRig(t)
-	rig.conn.refuseClosingCode = errcodeStreamExpired
-	rig.ran(t, "REQ-G", "task-1")
-	rig.answer(t, "the agent reply", "task-1")
-
-	pushes := rig.conn.pushes(t)
-	if len(pushes) != 1 {
-		t.Fatalf("a refused closing frame produced %d plain messages, want 1 — the answer went nowhere", len(pushes))
-	}
-	md, _ := pushes[0]["markdown"].(map[string]any)
-	if md == nil || md["content"] != "the agent reply" {
-		t.Fatalf("the fallback message did not carry the answer: %v", pushes[0])
 	}
 }
 

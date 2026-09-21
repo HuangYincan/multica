@@ -551,6 +551,7 @@
     "trigger_current_safe_point": "次の安全な時点で現在の作業に追加します。",
     "delivery_pending": "{{name}} の現在の作業への配信を待機中",
     "delivery_delivered": "{{name}} の現在の作業に配信済み · {{time}}",
+    "delivery_view_reply": "最終回答を表示",
     "delivery_follow_up": "{{name}} がフォローアップで対応します",
     "trigger_will_start_count_other": "送信後に {{count}} 体のエージェントが作業を開始します",
     "trigger_starts_now": "すぐに開始します。",

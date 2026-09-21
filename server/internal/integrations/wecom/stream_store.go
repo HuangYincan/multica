@@ -185,13 +185,6 @@ type streamHandle struct {
 	ChatID         string
 	ChatType       int
 
-	// QueuedBehind records that this round was opened while another round was
-	// still open — it spent its life waiting in line. An empty answer for such
-	// a round means "handled together with the previous reply", which is worth
-	// saying differently from a first round's plain silence. Set by the store
-	// at open; callers registering a handle leave it false.
-	QueuedBehind bool
-
 	// Locale is the language this round's closing words are written in,
 	// resolved from the asker when the bubble was opened (typing_indicator.go).
 	// It travels on the handle because every closer runs later, from an event
@@ -574,7 +567,6 @@ func (s *streamStore) open(sessionID pgtype.UUID, h streamHandle) (roundSeq, ope
 
 	s.seq++
 	e := &roundEntry{seq: s.seq, handle: h, painted: true, createdAt: h.CreatedAt}
-	e.handle.QueuedBehind = queuedBehind(s.sessions[key])
 	s.insertLocked(key, e)
 	// A run queued before anything was on screen has been waiting for exactly
 	// this. Pairing them here rather than leaving the run for the NEXT bubble
@@ -584,12 +576,6 @@ func (s *streamStore) open(sessionID pgtype.UUID, h streamHandle) (roundSeq, ope
 	}
 	return e.seq, roundOpened
 }
-
-// queuedBehind reports whether a round opening now would be waiting on one
-// already on file. Its own empty answer then means "the reply ahead of it
-// covered this", which is worth saying differently from plain silence. Decided
-// once, when the round opens, and never revised.
-func queuedBehind(rounds []*roundEntry) bool { return len(rounds) > 0 }
 
 // bindNext records that a run was queued for this session and hands it the
 // round it belongs to: the oldest one still waiting for a run. From here on
@@ -897,25 +883,6 @@ func (s *streamStore) take(ctx context.Context, sessionID pgtype.UUID, k roundKe
 		return s.takeAtLocked(key, i), true
 	}
 	return roundTurn{}, false
-}
-
-// has reports whether a session holds a round bound to this run. A round is
-// opened by a message this adapter ingested and bound to this run by the
-// session's own task:queued, so an entry here is local proof the question was
-// asked in the room — the one case the failure notice's origin gate can decide without a
-// database (failureBelongsOnWecom).
-func (s *streamStore) has(sessionID pgtype.UUID, taskID string) bool {
-	if taskID == "" {
-		return false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, r := range s.sessions[util.UUIDToString(sessionID)] {
-		if r.taskID == taskID {
-			return true
-		}
-	}
-	return false
 }
 
 // holding reports whether this store has anything on file anywhere — a round,

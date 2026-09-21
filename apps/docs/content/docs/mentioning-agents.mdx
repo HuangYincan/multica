@@ -53,6 +53,8 @@ If the runtime does not support steering, the route is ambiguous, the turn ends 
 
 An “already delivered” receipt is historical: its timestamp does not disappear if the turn later fails or is stopped. Editing a comment before it is claimed lets the active turn read the updated text; editing it after claiming has begun does not inject it a second time or start a duplicate follow-up. All steered comments remain in issue history so later natural runs can re-read the current text.
 
+After that run publishes its final reply, the delivered receipt adds **View final reply**. Use it to scroll to and highlight the run's single answer in the original discussion. Receipts do not show this link while the run is still working, when the comment is waiting for follow-up work, or when the run ended without an answer.
+
 When one comment @-mentions several different agents, each agent gets its own run; multiple mentions resolving to the same agent keep only one.
 
 ## Comments that don't trigger agents

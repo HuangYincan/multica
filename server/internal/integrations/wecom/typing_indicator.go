@@ -134,9 +134,9 @@ type TypingIndicatorConfig struct {
 
 	// Tasks answers where a run's input came from, and resolves a task id to
 	// its chat session for a task:failed that carries none. Nil leaves the
-	// origin question unanswerable, so every failed run this process holds no
-	// round for is refused rather than announced — see failureBelongsOnWecom
-	// for what this manager does when it cannot ask.
+	// origin question unanswerable, so a failed run's notice is refused rather
+	// than announced — see originOf for what this manager does when it cannot
+	// ask.
 	Tasks taskOrigin
 
 	// Deliveries finds the chat a failed run was asked in when its round has
@@ -169,51 +169,6 @@ func NewTypingIndicator(cfg TypingIndicatorConfig) *TypingIndicatorManager {
 		deliveries: cfg.Deliveries,
 		languages:  cfg.Languages,
 		log:        logger,
-	}
-}
-
-// TypingIndicatorWiring reports which of the four dependencies a manager holds.
-//
-// Every one of them is optional and every one of them narrows the manager
-// silently when it is missing: nothing panics, nothing logs, Register still
-// subscribes, and the events still arrive — the closing frame just never gets
-// written, which the user sees as a bubble that spins until the server's
-// window runs out on it. That makes "is it wired" unfalsifiable from the
-// outside, and a boot path that drops one looks exactly like a healthy one.
-// This is the inspection point that makes it falsifiable.
-//
-// Languages is deliberately not among them: a manager without it still closes
-// every bubble, in the deployment's language rather than the reader's.
-type TypingIndicatorWiring struct {
-	// Senders is the live WebSocket registry. Without it no closing frame and
-	// no plain-message fallback can be written at all.
-	Senders bool
-	// Streams is the round store shared with the outbound subscriber. Without
-	// it every handler returns on its first line, so no bubble is ever closed
-	// by any ending.
-	Streams bool
-	// Tasks reads the run's input batch, which is what establishes that the
-	// question was asked over WeCom and not by the installer in their own
-	// browser. Without it every failed run this process holds no round for is
-	// refused instead of announced, so a run that outlived its bubble tells
-	// the user nothing. It also resolves an auto-retry clone to the round its
-	// parent opened, and recovers the session for a task:failed carrying none.
-	Tasks bool
-	// Deliveries finds the chat a failed run was asked in when no bubble is
-	// on file. Without it a run that fails after its bubble is gone (the
-	// process restarted mid-run, or the opening frame was refused) tells the
-	// user nothing.
-	Deliveries bool
-}
-
-// Wiring reports the dependencies this manager was built with. For boot-wiring
-// guards; it copies four booleans and hands out no references.
-func (m *TypingIndicatorManager) Wiring() TypingIndicatorWiring {
-	return TypingIndicatorWiring{
-		Senders:    m.senders != nil,
-		Streams:    m.streams != nil,
-		Tasks:      m.tasks != nil,
-		Deliveries: m.deliveries != nil,
 	}
 }
 
@@ -582,7 +537,21 @@ func failureText(e events.Event, l Locale) string {
 	return copyFor(l).StreamFailed
 }
 
-// failureBelongsOnWecom asks where this run's input came from: the channel, or
+// originVerdict is what the gate could establish, and the three answers call
+// for three different things. "Not ours" releases the round — the run that
+// bound it is somebody else's and will never close it. "Unknown" says nothing
+// AND releases nothing: an unreachable database is not evidence that this run
+// belongs elsewhere, and giving the round away on a read that failed would
+// lose a bubble the room's own answer is still coming for.
+type originVerdict int
+
+const (
+	originUnknown originVerdict = iota
+	originNotOurs
+	originOurs
+)
+
+// originOf asks where this run's input came from: the channel, or
 // somewhere else? The engine makes the INSTALLER the creator of a group's
 // chat_session, so that session appears in their own Multica chat list and they
 // can ask it something in a browser. Both runs fail the same way, on the same
@@ -598,28 +567,8 @@ func failureText(e events.Event, l Locale) string {
 // evidence the question came from WeCom, and "one line of copy naming no
 // question and no answer" still tells a room that activity it cannot see went
 // wrong — the existence of the activity is the disclosure. So an origin that
-// cannot be established refuses, and says so at WARN.
-//
-// That costs nothing on the case worth protecting, because that case has local
-// evidence: a round still open has this run bound, and the caller reads that
-// off the store before it gets here. So a WeCom round whose bubble is open is
-// closed while the database is down, and it is only the runs this process
-// holds no round for that have to produce a row to be spoken for.
-// originVerdict is what the gate could establish, and the three answers call
-// for three different things. "Not ours" releases the round — the run that
-// bound it is somebody else's and will never close it. "Unknown" says nothing
-// AND releases nothing: an unreachable database is not evidence that this run
-// belongs elsewhere, and giving the round away on a read that failed would
-// lose a bubble the room's own answer is still coming for.
-type originVerdict int
-
-const (
-	originUnknown originVerdict = iota
-	originNotOurs
-	originOurs
-)
-
-// originOf is failureBelongsOnWecom with the two refusals told apart.
+// cannot be established refuses, says so at WARN, and — as originUnknown —
+// releases nothing.
 func (m *TypingIndicatorManager) originOf(ctx context.Context, sessionID pgtype.UUID, taskID string) originVerdict {
 	if taskID == "" {
 		// Both task:failed publishers carry one in production — see the block
@@ -651,36 +600,6 @@ func (m *TypingIndicatorManager) originOf(ctx context.Context, sessionID pgtype.
 		return originNotOurs
 	}
 	return originOurs
-}
-
-func (m *TypingIndicatorManager) failureBelongsOnWecom(ctx context.Context, sessionID pgtype.UUID, taskID string) bool {
-	if taskID == "" {
-		// Both task:failed publishers carry one in production — see the block
-		// comment above handleTaskFailed — so this is a payload shape nothing
-		// real produces, and it names no run to attribute.
-		m.refuseUnknownOrigin(ctx, sessionID, taskID, "no task id on the event")
-		return false
-	}
-	if m.tasks == nil {
-		m.refuseUnknownOrigin(ctx, sessionID, taskID, "no task lookup configured")
-		return false
-	}
-	id, err := util.ParseUUID(taskID)
-	if err != nil || !id.Valid {
-		m.refuseUnknownOrigin(ctx, sessionID, taskID, "unparseable task id")
-		return false
-	}
-	task, err := m.tasks.GetAgentTask(ctx, id)
-	if err != nil {
-		m.refuseUnknownOrigin(ctx, sessionID, taskID, "cannot read the task row: "+err.Error())
-		return false
-	}
-	deliver, err := engine.TaskInputIsChannelIngested(ctx, m.tasks, task)
-	if err != nil {
-		m.refuseUnknownOrigin(ctx, sessionID, taskID, "cannot read the channel-ingested stamp: "+err.Error())
-		return false
-	}
-	return deliver
 }
 
 // refuseUnknownOrigin logs a failure notice this process declined to put in a

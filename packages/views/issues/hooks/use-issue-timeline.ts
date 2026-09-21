@@ -65,6 +65,7 @@ function commentToTimelineEntry(c: Comment): TimelineEntry {
     resolved_by_type: c.resolved_by_type,
     resolved_by_id: c.resolved_by_id,
     source_task_id: c.source_task_id,
+    agent_deliveries: c.agent_deliveries,
     deleted_at: c.deleted_at,
   };
 }

@@ -296,3 +296,51 @@ func TestCancelTaskSettlesUndeliveredSteersWithoutStartingRun(t *testing.T) {
 		t.Fatalf("task count after Stop = %d, want no replacement run", taskCount)
 	}
 }
+
+func TestCommentSteerDeliveryReadModelIncludesNullableTaskID(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	f := newCommentSteerFixture(t, "read-model-task")
+	deliveredID := f.reply(t, "injected constraint", "4 minutes")
+	followUpID := f.reply(t, "future work", "2 minutes")
+	registerCommentSteer(t, f, deliveredID)
+	if _, err := testHandler.Queries.ClaimNextCommentSteer(context.Background(), util.MustParseUUID(f.taskID)); err != nil {
+		t.Fatalf("claim steer: %v", err)
+	}
+	if _, err := testHandler.Queries.AckCommentSteerDelivered(context.Background(), db.AckCommentSteerDeliveredParams{
+		TaskID: util.MustParseUUID(f.taskID), CommentID: util.MustParseUUID(deliveredID),
+	}); err != nil {
+		t.Fatalf("ack steer: %v", err)
+	}
+	if err := testHandler.Queries.RecordCommentFollowUpDelivery(context.Background(), db.RecordCommentFollowUpDeliveryParams{
+		CommentID: util.MustParseUUID(followUpID), AgentID: util.MustParseUUID(f.agentID),
+		FailureReason: pgtype.Text{String: "turn_ended", Valid: true},
+	}); err != nil {
+		t.Fatalf("record follow-up receipt: %v", err)
+	}
+
+	entries, status := fetchTimeline(t, f.issueID)
+	if status != http.StatusOK {
+		t.Fatalf("timeline status = %d, want 200", status)
+	}
+	byID := make(map[string]TimelineEntry, len(entries))
+	for _, entry := range entries {
+		byID[entry.ID] = entry
+	}
+	delivered := byID[deliveredID].AgentDeliveries
+	if len(delivered) != 1 || delivered[0].Status != "delivered" || delivered[0].TaskID == nil || *delivered[0].TaskID != f.taskID {
+		t.Fatalf("delivered receipt = %+v, want task_id %s", delivered, f.taskID)
+	}
+	followUp := byID[followUpID].AgentDeliveries
+	if len(followUp) != 1 || followUp[0].Status != "follow_up" || followUp[0].TaskID != nil {
+		t.Fatalf("follow-up receipt = %+v, want nullable task_id", followUp)
+	}
+
+	var recordedAsDelivered bool
+	dbfx.QueryRow(t, `SELECT $2::uuid = ANY(delivered_comment_ids) FROM agent_task_queue WHERE id=$1`, f.taskID, deliveredID).
+		Scan(&recordedAsDelivered)
+	if recordedAsDelivered {
+		t.Fatal("read-side task linkage wrote the steer comment into delivered_comment_ids")
+	}
+}

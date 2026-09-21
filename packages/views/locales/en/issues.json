@@ -563,6 +563,7 @@
     "trigger_current_safe_point": "Updates current work at the next safe point.",
     "delivery_pending": "Waiting to deliver to {{name}}'s current work",
     "delivery_delivered": "Delivered to {{name}}'s current work · {{time}}",
+    "delivery_view_reply": "View final reply",
     "delivery_follow_up": "{{name}} will handle this in follow-up work",
     "trigger_will_start_count_one": "{{count}} agent will start when sent",
     "trigger_will_start_count_other": "{{count}} agents will start when sent",

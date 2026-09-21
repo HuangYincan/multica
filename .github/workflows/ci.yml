@@ -282,6 +282,14 @@ jobs:
   # release, an entry built on the old one must not be restored. setup-go
   # keys on ImageOS for the same reason (actions/setup-go#368).
   #
+  # A rolling entry only grows on its own: each save is the restored entry
+  # plus this commit's objects, and Go trims only what has sat unused for
+  # five days, so the entry carried every recent main commit's race objects.
+  # It reached 3.5 GB in ten days, and restoring and saving it cost more than
+  # the compile it saved (MUL-7547). Before saving, the job therefore drops
+  # every entry this run did not use, leaving the next run the objects of the
+  # tree it is most likely to build.
+  #
   # This job is the only writer of either entry. backend-agent-tests restores
   # both, but it downloads just pkg/agent's slice of the module graph and
   # finishes first, so letting it save would repeat the first-writer-wins
@@ -365,6 +373,14 @@ jobs:
           key: ${{ steps.gocache.outputs.prefix }}${{ github.sha }}
           restore-keys: ${{ steps.gocache.outputs.prefix }}
 
+      # Go refreshes a cache entry's mtime when it uses it, but only once that
+      # mtime is an hour old. So after the run, an entry no newer than an hour
+      # before the first compile is one this run did not use. The prune step
+      # before the save compares against this marker.
+      - name: Mark Go build cache epoch
+        id: goepoch
+        run: touch -d '-1 hour' "$RUNNER_TEMP/go-build-epoch"
+
       - name: Build
         run: cd server && go build -race ./...
 
@@ -386,6 +402,17 @@ jobs:
       - name: Test
         # pkg/agent runs on its own runner: backend-agent-tests below.
         run: bash scripts/test-go.sh --race --only regular
+
+      # Go's own trim (cmd/go/internal/cache) with this run as the window
+      # instead of five days: only `-a`/`-d` entries, and an executable entry
+      # is a directory, so it goes whole. See the job comment.
+      - name: Prune Go build cache to this run's entries
+        if: ${{ !cancelled() && github.event_name == 'push' && steps.goepoch.outcome == 'success' }}
+        run: |
+          du -sh ~/.cache/go-build
+          find ~/.cache/go-build -mindepth 2 -maxdepth 2 \( -name '*-a' -o -name '*-d' \) \
+            ! -newer "$RUNNER_TEMP/go-build-epoch" -exec rm -rf {} +
+          du -sh ~/.cache/go-build
 
       # Publishes from main only; see the job comment. `!cancelled()` so a red
       # main still refreshes the objects for the next run, and the key step's
