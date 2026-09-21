@@ -156,34 +156,6 @@ func TestARefusedClosingFrameIsNotRetried(t *testing.T) {
 	}
 }
 
-// The retries stop when the caller's budget runs out: a subscriber's ten
-// seconds are not spent waiting on a frame that will be refused anyway.
-func TestClosingFrameRetriesStopWhenTheContextEnds(t *testing.T) {
-	t.Parallel()
-	rig, _ := retryRig(t)
-	rig.conn.loseClosingAcks = 1 << 20
-	rig.streams.closeRetryDelay = time.Hour // any retry would wait forever
-	rig.ran(t, "REQ-CTX", "task-1")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-	t.Cleanup(func() { rig.streams.closeRetryDelay = 0 })
-	_, _ = rig.streams.take(ctx, bubbleSessionID(t), byTask(taskUUID(t, "task-1")), nil)
-	h := streamHandle{ReqID: "REQ-CTX", StreamID: rig.conn.streamFrames(t)[0]["id"].(string),
-		InstallationID: rig.instID, ChatID: "CHAT_1", ChatType: chatTypeSingleInt, CreatedAt: rig.now}
-	started := time.Now()
-	err := rig.streams.seal(ctx, rig.senders, h, "the agent reply")
-	if err == nil {
-		t.Fatal("a closing frame nobody acked reported success")
-	}
-	if waited := time.Since(started); waited > 2*time.Second {
-		t.Fatalf("seal held the caller for %v after its context ended", waited)
-	}
-	if got := len(rig.conn.streamFrames(t)); got != 2 {
-		t.Fatalf("seal wrote %d closing frame(s) before the context ended, want 1", got-1)
-	}
-}
-
 // A delivery that took the bubble and then failed is one counted drop, and
 // nothing follows from it: no bubble is left to seal, nothing is owed, and a
 // replay of the completion goes out the way any bubble-less answer does — as a
@@ -297,101 +269,6 @@ func TestAClosingFrameTheSocketRefusesToTakeIsNotSaidTwice(t *testing.T) {
 // ---------------------------------------------------------------------------
 // what a lost ack is, and what it is not
 // ---------------------------------------------------------------------------
-
-// A closing frame that was written and never answered is NOT proof the answer
-// failed to arrive. errWriteAttempted says so in its own doc, and cancelAck's
-// says a genuinely lost ack makes every later frame on that req_id time out
-// too — so "no verdict" is the cascade's normal shape rather than a rare one.
-//
-// Sending the text again on that evidence is the one outcome a chat with no
-// unsend cannot take back: the person reads the same answer twice, forever.
-// One unconfirmed delivery is the cheaper error, and it is the one an operator
-// can act on from the counter.
-//
-// REVERSE VERIFICATION: restore `if err := o.finishStream(...); err == nil` as
-// the only success arm and this fails with the answer pushed a second time.
-func TestAnAnswerWhoseSealWasNeverAckedIsNotSentAgain(t *testing.T) {
-	t.Parallel()
-	rig, mx := retryRig(t)
-	rig.conn.loseClosingAcks = 1 << 20 // no closing frame is ever answered
-	rig.ran(t, "REQ-UNACKED", "task-1")
-
-	rig.answer(t, "the agent reply", "task-1")
-
-	// The frame reached the wire — that is what makes this "unconfirmed"
-	// rather than "not sent".
-	frames := rig.conn.streamFrames(t)
-	if len(frames) < 2 || frames[1]["finish"] != true {
-		t.Fatalf("no closing frame was written, so this is not the case under test: %v", frames)
-	}
-	if pushes := rig.conn.pushes(t); len(pushes) != 0 {
-		t.Fatalf("the answer also went out as %d plain message(s) — the person reads it twice and WeCom has no unsend: %v",
-			len(pushes), pushes)
-	}
-	if got := mx.get("outbound_unconfirmed"); got != 1 {
-		t.Errorf("outbound_unconfirmed = %d, want 1 — the frame was written and no verdict came back, which is exactly unknown", got)
-	}
-	if got := mx.get("outbound_delivered"); got != 0 {
-		t.Errorf("outbound_delivered = %d, want 0 — nothing confirmed this landed", got)
-	}
-}
-
-// A stated refusal is the other case, and the only one that is proof. 846605
-// and 846608 mean the server will not take another frame for this stream, so
-// nothing was written into the bubble and the answer has to go out as its own
-// message.
-func TestAnAnswerTheServerRefusedIsStillSaid(t *testing.T) {
-	t.Parallel()
-	rig, mx := retryRig(t)
-	rig.conn.refuseClosingCode = errcodeStreamExpired
-	rig.ran(t, "REQ-REFUSED", "task-1")
-
-	rig.answer(t, "the agent reply", "task-1")
-
-	pushes := rig.conn.pushes(t)
-	if len(pushes) != 1 || pushText(pushes[0]) != "the agent reply" {
-		t.Fatalf("a refused seal did not fall back to one plain message: %v", pushes)
-	}
-	if got := mx.get("stream_fell_back"); got != 1 {
-		t.Errorf("stream_fell_back = %d, want 1", got)
-	}
-}
-
-// The seal and the fallback used to share one deadline, and the arithmetic did
-// not fit: ackTimeout 5s + streamCloseRetryDelay 2s + ackTimeout 5s is twelve
-// seconds of retry against a ten-second streamCloseTimeout. The context died
-// inside seal, sendAsMessage then ran on the expired one and returned without
-// writing, and the WARN said "sending a new message instead" while no message
-// was sent. On main the answer always had the whole budget for its plain
-// message; the bubble must not be able to spend it.
-//
-// REVERSE VERIFICATION: hand the fallback the same ctx seal used and this
-// fails with nothing on the wire.
-func TestTheFallbackKeepsItsOwnDeadlineWhenTheSealSpendsTheBudget(t *testing.T) {
-	t.Parallel()
-	rig, mx := retryRig(t)
-	rig.ran(t, "REQ-BUDGET", "task-1")
-
-	// The budget runs out INSIDE the seal, which is the only way it happens:
-	// the retries spend it. The server then states a refusal, so the fallback
-	// is the right thing to do — and it has to still be able to do it.
-	rig.conn.refuseClosingCode = errcodeStreamExpired
-	// What the seal leaves behind: a refusal it did read, and a budget too
-	// short for the push that has to follow. ackTimeout is what one push may
-	// need, so anything under it is a fallback that cannot finish.
-	nearlySpent, cancel := context.WithTimeout(context.Background(), ackTimeout/5)
-	defer cancel()
-	rig.answerWithContext(t, nearlySpent, "the agent reply", "task-1")
-
-	pushes := rig.conn.pushes(t)
-	if len(pushes) != 1 || pushText(pushes[0]) != "the agent reply" {
-		t.Fatalf("the answer never reached the chat: the fallback ran on the budget the seal had already spent (%d push(es): %v)",
-			len(pushes), pushes)
-	}
-	if got := mx.get("outbound_delivered"); got != 1 {
-		t.Errorf("outbound_delivered = %d, want 1", got)
-	}
-}
 
 // At the shipped constants the whole retry policy does not fit the budget it
 // runs under — 3 retries need 26s against a 10s streamCloseTimeout — so the

@@ -53,11 +53,6 @@ func (f fakeLanguages) GetUser(_ context.Context, id pgtype.UUID) (db.User, erro
 	return db.User{}, pgx.ErrNoRows
 }
 
-// languagesFor builds a lookup for one asker reading in the given language.
-func languagesFor(language string) fakeLanguages {
-	return fakeLanguages{senderID: "T-asker", userID: localeTestUserID, language: language}
-}
-
 // localeCases is the pair every surface below is driven with. The expected
 // text is read off the packs rather than spelled out again: the assertion is
 // that the SURFACE consults the pack, and duplicating the wording here would
@@ -94,6 +89,9 @@ func TestTheBubbleClosesInTheAskersLanguage(t *testing.T) {
 			if len(frames) != 2 {
 				t.Fatalf("got %d stream frames, want 2 (open + seal)", len(frames))
 			}
+			if frames[1]["finish"] != true {
+				t.Fatal("an empty answer did not seal the bubble; it spins until the platform ends it")
+			}
 			if got, want := frames[1]["content"], copyPacks[tc.locale].StreamNoReply; got != want {
 				t.Fatalf("closing copy = %q, want the %s copy %q", got, tc.locale, want)
 			}
@@ -113,25 +111,15 @@ func restoreLocale(t *testing.T, l Locale) {
 	t.Cleanup(func() { deploymentLocaleValue.Store(prev) })
 }
 
-// TestSetDeploymentLocaleUnsetStaysChinese is the compatibility guard: every
-// existing deployment sets nothing, and nothing must keep meaning zh-Hans.
-func TestSetDeploymentLocaleUnsetStaysChinese(t *testing.T) {
-	if DefaultLocale != LocaleZhHans {
-		t.Fatalf("DefaultLocale = %q, want zh-Hans — WeCom is a Chinese platform", DefaultLocale)
-	}
-	restoreLocale(t, DefaultLocale)
-	if got := SetDeploymentLocale(""); got != LocaleZhHans {
-		t.Fatalf("SetDeploymentLocale(\"\") = %q, want the Chinese default left in place", got)
-	}
-	if got := copyFor(deploymentLocale()).StreamFailed; got != copyPacks[LocaleZhHans].StreamFailed {
-		t.Fatalf("unset deployment reads %q, want the Chinese pack", got)
-	}
-}
-
 // TestSetDeploymentLocaleIgnoresWhatItDoesNotRecognise — an env var is
 // validated by nobody. A typo must leave the language where it was rather than
 // quietly moving a tenant onto the other pack.
 func TestSetDeploymentLocaleIgnoresWhatItDoesNotRecognise(t *testing.T) {
+	// Every existing deployment sets nothing, and nothing must keep meaning
+	// zh-Hans — WeCom is a Chinese platform.
+	if DefaultLocale != LocaleZhHans {
+		t.Fatalf("DefaultLocale = %q, want zh-Hans", DefaultLocale)
+	}
 	restoreLocale(t, LocaleZhHans)
 	for _, junk := range []string{"zh_Hant", "english", "EN-US", `"en"`, "  ", "fr"} {
 		if got := SetDeploymentLocale(junk); got != LocaleZhHans {
@@ -148,49 +136,26 @@ func TestSetDeploymentLocaleIgnoresWhatItDoesNotRecognise(t *testing.T) {
 	}
 }
 
-// ---- the compatibility pin ----
+// ---- the packs ----
 
-// TestZhHansPackIsTheCopyThatAlreadyShipped spells the wording out once. The
-// test above reads its expected text off the pack, which proves the CLOSER
-// consults the pack and proves nothing at all about what the pack says — edit a
-// zh-Hans string and it still passes. So every line is pinned here, and
-// changing one is a deliberate edit in this table rather than a silent one in
-// the pack.
-//
-// It walks the struct rather than checking a handful of fields, so a copy
-// string added later without a line in the table fails here instead of
-// shipping unreviewed. That makes the table the place a zh-Hans wording change
-// has to be argued for, which is the point.
-func TestZhHansPackIsTheCopyThatAlreadyShipped(t *testing.T) {
+// TestEveryPackSaysSomethingVisible: each copy string is the whole content of
+// a closing frame, and WeCom discards a closing frame with nothing visible in
+// it — the bubble it was meant to seal then spins until the platform ends it.
+// So no string in any pack may be blank. The wording itself is not pinned: the
+// test above proves the closer reads the pack, and a copy edit should be a
+// one-file change.
+func TestEveryPackSaysSomethingVisible(t *testing.T) {
 	t.Parallel()
-
-	want := map[string]string{
-		"StreamNoReply":          "（这轮没有需要回复的内容）",
-		"StreamNoReplyWithFiles": "（这轮没有文字回复，附件在下面）",
-		"StreamNotStarted":       "已收到，但这条暂时没能开始处理。",
-		"StreamFailed":           "⚠️ 这次没跑通，请稍后再试一次。",
-		"StreamCancelled":        "⏹️ 这次处理已取消。",
-	}
-	zh := reflect.ValueOf(copyPacks[LocaleZhHans])
-	typ := zh.Type()
-	for i := range typ.NumField() {
-		name := typ.Field(i).Name
-		switch typ.Field(i).Type.Kind() {
-		case reflect.String:
-			expected, listed := want[name]
-			if !listed {
-				t.Errorf("copyPack.%s is a reader-visible string with no line in this table; add the text it shipped with", name)
+	for locale, pack := range copyPacks {
+		v := reflect.ValueOf(pack)
+		for i := range v.NumField() {
+			if v.Field(i).Kind() != reflect.String {
 				continue
 			}
-			if got := zh.Field(i).String(); got != expected {
-				t.Errorf("zh-Hans %s = %q, want %q — a Chinese tenant reads this, so change it deliberately or not at all", name, got, expected)
+			if s := v.Field(i).String(); !hasVisibleChar(s) {
+				t.Errorf("%s copy %s = %q has nothing visible; WeCom would discard the closing frame",
+					locale, v.Type().Field(i).Name, s)
 			}
-			delete(want, name)
-		default:
-			t.Errorf("copyPack.%s has kind %s, which this test does not pin", name, typ.Field(i).Type.Kind())
 		}
-	}
-	for name := range want {
-		t.Errorf("this table pins copyPack.%s, which no longer exists", name)
 	}
 }
