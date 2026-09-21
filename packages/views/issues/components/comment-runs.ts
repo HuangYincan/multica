@@ -56,11 +56,17 @@ export function buildCommentRunView(
     return entry?.id;
   };
   const replies = new Map<string, TimelineEntry>();
+  const topLevelOutputs = new Map<string, TimelineEntry[]>();
   for (const entry of comments.values()) {
     if (!entry.source_task_id || entry.actor_type !== "agent") continue;
     const prior = replies.get(entry.source_task_id);
     if (!prior || entry.created_at > prior.created_at || (entry.created_at === prior.created_at && entry.id > prior.id)) {
       replies.set(entry.source_task_id, entry);
+    }
+    if (!entry.parent_id) {
+      const outputs = topLevelOutputs.get(entry.source_task_id) ?? [];
+      outputs.push(entry);
+      topLevelOutputs.set(entry.source_task_id, outputs);
     }
   }
   const byTask = new Map(inlineTasks.map((task) => [task.id, task]));
@@ -118,9 +124,13 @@ export function buildCommentRunView(
   // Project every task-owned answer first, then use that same tree for run
   // grouping, replies, resolution, and navigation. Assignment answers become
   // roots even if the agent originally posted them inside an existing thread.
+  // The run's other top-level comments follow its reply: moving only the
+  // latest one would render it above the progress posted before it (MUL-7548).
+  // Comments the agent placed in a thread stay where it put them.
   const parents = new Map<string, string | undefined>();
   for (const run of placements) {
     if (run.hasReply && run.commentId && run.commentId !== run.anchorCommentId) {
+      for (const output of topLevelOutputs.get(run.task.id) ?? []) parents.set(output.id, run.anchorCommentId);
       parents.set(run.commentId, run.anchorCommentId);
     }
   }
