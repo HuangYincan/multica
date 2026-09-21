@@ -296,12 +296,11 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       {
         version: "0.5.1",
         date: "2026-09-21",
-        title: "Issue wakeup rules, mid-run steering, project starting branches, and steadier channels and runtimes",
+        title: "Issue wakeup rules, comment permalinks, project starting branches, and steadier channels and runtimes",
         changes: [],
         features: [
           "Set an Issue to wake an agent up again when a comment arrives, or on a schedule you choose.",
           "Manage those wakeup rules from the Issue sidebar or from an Autopilot.",
-          "Send a comment straight into a task that is already running, and see whether it landed.",
           "Choose the branch or commit a project's repository work starts from.",
           "Copy a direct link to any comment or reply, and open it with that comment highlighted.",
           "A WeCom answer comes back inside the message you asked from.",

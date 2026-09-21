@@ -296,12 +296,11 @@ export function createZhDict(allowSignup: boolean): LandingDict {
       {
         version: "0.5.1",
         date: "2026-09-21",
-        title: "Issue 唤醒规则、运行中任务追加指令、项目仓库起始分支、渠道与运行时更稳",
+        title: "Issue 唤醒规则、评论直链、项目仓库起始分支、渠道与运行时更稳",
         changes: [],
         features: [
           "Issue 可以设置成有新评论时或按定时规则再次唤醒智能体。",
           "唤醒规则可以在 Issue 侧栏或 Autopilot 里管理。",
-          "正在运行的任务可以直接追加一条评论作为指令，并能看到是否送达。",
           "项目的仓库工作可以指定从哪个分支或提交开始。",
           "评论和回复都能复制直链，打开后会定位并高亮它。",
           "企业微信的回答会回在你提问的那条消息里。",
