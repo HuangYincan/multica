@@ -58,7 +58,7 @@ func assertCursorTestProcessAlive(t *testing.T, pid int) {
 // the tree, the query must grow until the two counts agree and return every
 // member, whether the kernel signals the shortfall with ERROR_MORE_DATA or
 // only through the counts.
-func TestCursorJobProcessIDsGrowsPastInitialCapacity(t *testing.T) {
+func TestCaptureCursorBackgroundJobListGrowsPastInitialCapacity(t *testing.T) {
 	root, shell, leaf := spawnCursorTestTree(t)
 	tree, ok := lookupProcessTree(root)
 	if !ok {
