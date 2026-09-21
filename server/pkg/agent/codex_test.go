@@ -46,8 +46,9 @@ func TestSteerCodexTurnUsesExpectedActiveTurn(t *testing.T) {
 	c, stdin, _ := newTestCodexClient(t)
 	c.setThreadID("thread-current")
 	c.setActiveTurnID("turn-current")
+	instruction := "[STEER] preserve ORIGINAL and merge STEERED into one final response"
 	done := make(chan error, 1)
-	go func() { done <- steerCodexTurn(context.Background(), c, "new constraint") }()
+	go func() { done <- steerCodexTurn(context.Background(), c, instruction) }()
 
 	deadline := time.Now().Add(time.Second)
 	for len(stdin.Lines()) == 0 && time.Now().Before(deadline) {
@@ -73,12 +74,32 @@ func TestSteerCodexTurnUsesExpectedActiveTurn(t *testing.T) {
 		t.Fatalf("input = %#v, want one text item", params["input"])
 	}
 	item, ok := input[0].(map[string]any)
-	if !ok || item["type"] != "text" || item["text"] != "new constraint" {
+	if !ok || item["type"] != "text" || item["text"] != instruction {
 		t.Fatalf("input item = %#v", input[0])
 	}
 	c.handleLine(`{"jsonrpc":"2.0","id":1,"result":{}}`)
 	if err := <-done; err != nil {
 		t.Fatalf("steer: %v", err)
+	}
+}
+
+func TestSteerCodexTurnPropagatesProviderFailure(t *testing.T) {
+	c, stdin, _ := newTestCodexClient(t)
+	c.setThreadID("thread-current")
+	c.setActiveTurnID("turn-current")
+	done := make(chan error, 1)
+	go func() { done <- steerCodexTurn(context.Background(), c, "framed instruction") }()
+
+	deadline := time.Now().Add(time.Second)
+	for len(stdin.Lines()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if len(stdin.Lines()) != 1 {
+		t.Fatalf("steer requests = %d, want 1", len(stdin.Lines()))
+	}
+	c.handleLine(`{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"active turn is not steerable"}}`)
+	if err := <-done; err == nil || !strings.Contains(err.Error(), "active turn is not steerable") {
+		t.Fatalf("steer error = %v, want provider failure", err)
 	}
 }
 
