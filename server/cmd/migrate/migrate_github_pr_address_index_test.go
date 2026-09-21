@@ -17,6 +17,9 @@ func TestGitHubPRAddressIndexMigrationUpDownUp(t *testing.T) {
 
 	schema := createScratchSchema(t, ctx, adminPool, "migrate_github_pr_address_")
 	pool := openTestPoolWithSearchPath(t, schema)
+	// Keep the 3,000-row target repository outside the 100-value MCV lists while
+	// preserving the owner/repository correlation that caused the planner to
+	// underestimate this path and prefer it over the selective head_sha index.
 	for _, statement := range []string{
 		`CREATE TABLE github_pull_request (
 			id UUID PRIMARY KEY,
@@ -30,14 +33,31 @@ func TestGitHubPRAddressIndexMigrationUpDownUp(t *testing.T) {
 		)`,
 		`CREATE UNIQUE INDEX github_pull_request_workspace_id_repo_owner_repo_name_pr_nu_key
 			ON github_pull_request (workspace_id, repo_owner, repo_name, pr_number)`,
+		`CREATE INDEX idx_github_pull_request_head_sha
+			ON github_pull_request (head_sha)`,
 		`INSERT INTO github_pull_request (
 			id, workspace_id, installation_id, repo_owner, repo_name, pr_number, head_sha, state
 		)
-		SELECT ('10000000-0000-0000-0000-' || lpad(n::text, 12, '0'))::uuid,
-		       ('20000000-0000-0000-0000-' || lpad(n::text, 12, '0'))::uuid,
-		       (n % 250) + 1, 'owner-' || (n % 100), 'repo-' || (n % 1000),
-		       n, 'sha-' || n, 'open'
-		FROM generate_series(1, 50000) AS n`,
+		SELECT md5('target-id-' || n)::uuid,
+		       md5('target-workspace-' || n)::uuid,
+		       777, 'target-owner', 'target-repo', n, 'target-sha-' || n, 'open'
+		FROM generate_series(1, 3000) AS n
+		UNION ALL
+		SELECT md5('background-id-' || repo || '-' || n)::uuid,
+		       md5('background-workspace-' || repo || '-' || n)::uuid,
+		       1000 + repo, 'background-owner-' || repo, 'background-repo-' || repo,
+		       n, 'background-sha-' || repo || '-' || n, 'open'
+		FROM generate_series(1, 101) AS repo
+		CROSS JOIN generate_series(1, 4000) AS n
+		UNION ALL
+		SELECT md5('singleton-id-' || n)::uuid,
+		       md5('singleton-workspace-' || n)::uuid,
+		       10000 + n, 'singleton-owner-' || n, 'singleton-repo-' || n,
+		       1, 'singleton-sha-' || n, 'open'
+		FROM generate_series(1, 3000) AS n`,
+		`ALTER TABLE github_pull_request ALTER COLUMN installation_id SET STATISTICS 100`,
+		`ALTER TABLE github_pull_request ALTER COLUMN repo_owner SET STATISTICS 100`,
+		`ALTER TABLE github_pull_request ALTER COLUMN repo_name SET STATISTICS 100`,
 		`ANALYZE github_pull_request`,
 	} {
 		if _, err := pool.Exec(ctx, statement); err != nil {
@@ -45,20 +65,31 @@ func TestGitHubPRAddressIndexMigrationUpDownUp(t *testing.T) {
 		}
 	}
 
-	const indexName = "idx_github_pull_request_installation_repo_pr"
-	const query = `
+	const indexName = "idx_github_pull_request_pr_owner_repo"
+	const addressQuery = `
 		SELECT id, workspace_id, head_sha, state
 		FROM github_pull_request
-		WHERE installation_id = 243
-		  AND repo_owner = 'owner-42'
-		  AND repo_name = 'repo-242'
-		  AND pr_number = 4242`
-	before := explainAnalyze(t, ctx, pool, query)
-	if strings.Contains(before, indexName) {
-		t.Fatalf("before plan unexpectedly uses absent index: %s", before)
+		WHERE installation_id = 777
+		  AND repo_owner = 'target-owner'
+		  AND repo_name = 'target-repo'
+		  AND pr_number = 2999`
+	const headSHAQuery = `
+		SELECT DISTINCT pr_number
+		FROM github_pull_request
+		WHERE installation_id = 777
+		  AND repo_owner = 'target-owner'
+		  AND repo_name = 'target-repo'
+		  AND head_sha = 'target-sha-2999'`
+	addressBefore := explainAnalyze(t, ctx, pool, addressQuery)
+	headSHABefore := explainAnalyze(t, ctx, pool, headSHAQuery)
+	if strings.Contains(addressBefore, indexName) {
+		t.Fatalf("before plan unexpectedly uses absent index: %s", addressBefore)
+	}
+	if !strings.Contains(headSHABefore, "idx_github_pull_request_head_sha") {
+		t.Fatalf("before SHA plan does not use head_sha index: %s", headSHABefore)
 	}
 
-	const version = "533_github_pr_installation_repo_pr_index"
+	const version = "533_github_pr_address_index"
 	options := runOptions{
 		Direction:             "up",
 		Files:                 realMigrationFiles(t, []string{version}, "up"),
@@ -70,11 +101,18 @@ func TestGitHubPRAddressIndexMigrationUpDownUp(t *testing.T) {
 		t.Fatalf("apply GitHub PR address index migration: %v", err)
 	}
 	assertGitHubPRAddressIndex(t, ctx, pool, indexName)
-	after := explainAnalyze(t, ctx, pool, query)
-	if !strings.Contains(after, indexName) {
-		t.Fatalf("after plan does not use %s: %s", indexName, after)
+	addressAfter := explainAnalyze(t, ctx, pool, addressQuery)
+	headSHAAfter := explainAnalyze(t, ctx, pool, headSHAQuery)
+	if !strings.Contains(addressAfter, indexName) {
+		t.Fatalf("after address plan does not use %s: %s", indexName, addressAfter)
 	}
-	t.Logf("before plan:\n%s\nafter plan:\n%s", before, after)
+	if !strings.Contains(headSHAAfter, "idx_github_pull_request_head_sha") || strings.Contains(headSHAAfter, indexName) {
+		t.Fatalf("after SHA plan does not stay on head_sha index: %s", headSHAAfter)
+	}
+	t.Logf(
+		"address before:\n%s\naddress after:\n%s\nSHA before:\n%s\nSHA after:\n%s",
+		addressBefore, addressAfter, headSHABefore, headSHAAfter,
+	)
 
 	options.Direction = "down"
 	options.Files = realMigrationFiles(t, []string{version}, "down")
@@ -114,13 +152,13 @@ func assertGitHubPRAddressIndex(
 	); err != nil {
 		t.Fatalf("read GitHub PR address index: %v", err)
 	}
-	if unique || !valid || !ready || !nonPartial || keyAttributes != 4 || totalAttributes != 4 {
+	if unique || !valid || !ready || !nonPartial || keyAttributes != 3 || totalAttributes != 3 {
 		t.Fatalf(
 			"index flags unique=%v valid=%v ready=%v non-partial=%v keys=%d attributes=%d",
 			unique, valid, ready, nonPartial, keyAttributes, totalAttributes,
 		)
 	}
-	if !strings.Contains(definition, "USING btree (installation_id, repo_owner, repo_name, pr_number)") {
+	if !strings.Contains(definition, "USING btree (pr_number, repo_owner, repo_name)") {
 		t.Fatalf("index definition = %q", definition)
 	}
 }
