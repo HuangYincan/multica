@@ -31,6 +31,51 @@ func cursorProcessCreated(process windows.Handle) (uint64, error) {
 	return uint64(created.HighDateTime)<<32 | uint64(created.LowDateTime), err
 }
 
+// jobObjectBasicProcessIDList mirrors JOBOBJECT_BASIC_PROCESS_ID_LIST. The
+// kernel writes as many PIDs as fit after the two counts; ProcessIdList is the
+// first slot of that trailing array, and callers size the buffer behind it.
+type jobObjectBasicProcessIDList struct {
+	NumberOfAssignedProcesses uint32
+	NumberOfProcessIdsInList  uint32
+	ProcessIdList             [1]uintptr
+}
+
+// cursorJobProcessIDs lists the processes currently assigned to job. Every
+// descendant of a launch inherits its Job at creation and cannot leave it, so
+// this is the authoritative record of what belongs to the launch — unlike the
+// machine-wide parent-PID snapshot, which keeps a child's recorded parent after
+// that parent exits and lets a reused PID point at a process owned by someone
+// else (MUL-7417).
+func cursorJobProcessIDs(job windows.Handle) (map[uint32]struct{}, error) {
+	const word = int(unsafe.Sizeof(uintptr(0)))
+	const header = int(unsafe.Sizeof(jobObjectBasicProcessIDList{})) - word
+	capacity := 256
+	for attempt := 0; ; attempt++ {
+		// A []uintptr backing array keeps the header pointer-aligned.
+		words := make([]uintptr, (header+word-1)/word+capacity)
+		size := uint32(len(words) * word)
+		err := windows.QueryInformationJobObject(job, windows.JobObjectBasicProcessIdList, uintptr(unsafe.Pointer(&words[0])), size, nil)
+		list := (*jobObjectBasicProcessIDList)(unsafe.Pointer(&words[0]))
+		if errors.Is(err, windows.ERROR_MORE_DATA) && attempt < 8 {
+			capacity = int(list.NumberOfAssignedProcesses) + 64
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("query job process ids: %w", err)
+		}
+		count := int(list.NumberOfProcessIdsInList)
+		if count > capacity {
+			count = capacity
+		}
+		ids := unsafe.Slice(&list.ProcessIdList[0], capacity)[:count]
+		members := make(map[uint32]struct{}, count)
+		for _, id := range ids {
+			members[uint32(id)] = struct{}{}
+		}
+		return members, nil
+	}
+}
+
 func captureCursorBackgroundProcess(cmd *exec.Cmd, pid int) (*cursorBackgroundProcess, error) {
 	if cmd == nil || cmd.Process == nil || pid <= 0 || uint64(pid) > uint64(^uint32(0)) || pid == cmd.Process.Pid {
 		return nil, errCursorBackgroundProcessInvalid
@@ -38,10 +83,6 @@ func captureCursorBackgroundProcess(cmd *exec.Cmd, pid int) (*cursorBackgroundPr
 	root, ok := lookupProcessTree(cmd)
 	if !ok {
 		return nil, errCursorBackgroundProcessInvalid
-	}
-	parents, err := cursorWindowsProcessParents()
-	if err != nil {
-		return nil, err
 	}
 	type heldProcess struct {
 		pid     uint32
@@ -54,6 +95,9 @@ func captureCursorBackgroundProcess(cmd *exec.Cmd, pid int) (*cursorBackgroundPr
 			_ = windows.CloseHandle(p.handle)
 		}
 	}()
+	// open is only ever asked for a PID the launch Job listed. Membership is
+	// re-checked on the handle so a PID reused between the listing and the open
+	// is refused rather than claimed.
 	open := func(pid uint32) (heldProcess, error) {
 		h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, pid)
 		if err != nil {
@@ -69,25 +113,20 @@ func captureCursorBackgroundProcess(cmd *exec.Cmd, pid int) (*cursorBackgroundPr
 		held = append(held, p)
 		return p, nil
 	}
-	target, err := open(uint32(pid))
+	// Membership of this launch's Job is the ownership proof: only processes
+	// descended from cmd can be in it, and a payload cannot name another
+	// task's process. No walk up the parent chain is needed, and none is
+	// attempted — that walk is what a reused PID could derail.
+	members, err := cursorJobProcessIDs(root.job)
 	if err != nil {
 		return nil, err
 	}
-	// Held handles and creation ordering reject reused parent PIDs. Membership
-	// of this launch's Job also prevents a payload from claiming another task.
-	child := target
-	seen := map[uint32]bool{}
-	for child.pid != uint32(cmd.Process.Pid) {
-		parentPID := parents[child.pid]
-		if parentPID == 0 || seen[parentPID] {
-			return nil, errCursorBackgroundProcessInvalid
-		}
-		seen[parentPID] = true
-		parent, err := open(parentPID)
-		if err != nil || parent.created > child.created {
-			return nil, errCursorBackgroundProcessInvalid
-		}
-		child = parent
+	if _, ok := members[uint32(pid)]; !ok {
+		return nil, errCursorBackgroundProcessInvalid
+	}
+	target, err := open(uint32(pid))
+	if err != nil {
+		return nil, err
 	}
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
@@ -104,25 +143,38 @@ func captureCursorBackgroundProcess(cmd *exec.Cmd, pid int) (*cursorBackgroundPr
 	}
 	// Assign each parent BEFORE enumerating its immediate children. New children
 	// now inherit the Job, and pre-existing children are attached breadth first.
+	// Candidates come from the launch Job, so a stale parent PID in the snapshot
+	// can at worst point at another launch member, never at a foreign process;
+	// creation order then tells a real child from one that only points at this
+	// PID because its own parent exited and the PID was reused.
 	queue := []heldProcess{target}
+	claimed := map[uint32]bool{target.pid: true}
 	for len(queue) > 0 {
 		parent := queue[0]
 		queue = queue[1:]
+		members, err := cursorJobProcessIDs(root.job)
+		if err != nil {
+			return nil, err
+		}
 		parents, err := cursorWindowsProcessParents()
 		if err != nil {
 			return nil, err
 		}
-		for childPID, parentPID := range parents {
-			if parentPID != parent.pid {
+		for childPID := range members {
+			if claimed[childPID] || parents[childPID] != parent.pid {
 				continue
 			}
 			child, err := open(childPID)
 			if err != nil {
-				return nil, err
+				// Listed a moment ago, gone or reused now: there is nothing of
+				// ours behind this PID to claim. Skipping it keeps the rest of
+				// the subtree owned instead of failing the whole capture.
+				continue
 			}
 			if child.created < parent.created {
-				return nil, errCursorBackgroundProcessIdentity
+				continue
 			}
+			claimed[childPID] = true
 			member, err := cursorProcessInJob(child.handle, job)
 			if err != nil {
 				return nil, err
