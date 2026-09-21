@@ -596,6 +596,29 @@ func TestBuildClaudeInputEncodesUserMessage(t *testing.T) {
 	}
 }
 
+func TestBuildClaudeInputPreservesSteerFraming(t *testing.T) {
+	t.Parallel()
+
+	instruction := "[STEER] preserve ORIGINAL and merge STEERED into one final response"
+	data, err := buildClaudeInput(instruction)
+	if err != nil {
+		t.Fatalf("buildClaudeInput: %v", err)
+	}
+	var payload struct {
+		Message struct {
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(data), &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if len(payload.Message.Content) != 1 || payload.Message.Content[0].Text != instruction {
+		t.Fatalf("Claude steer payload = %+v, want exact framed instruction", payload.Message.Content)
+	}
+}
+
 func TestMergeEnvFiltersClaudeCodeVars(t *testing.T) {
 	t.Parallel()
 
