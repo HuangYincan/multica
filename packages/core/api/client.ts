@@ -1215,8 +1215,8 @@ export class ApiClient {
    * unique `(workspace_id, number)` index, and 404s on a wrong prefix or a
    * missing number.
    *
-   * `signal` is optional so cancel-on-unmount callers (identifier autolink
-   * resolution) can abort an in-flight lookup the same way search does.
+   * `signal` remains optional for callers that need to abort an in-flight
+   * lookup; identifier autolink resolution intentionally lets it complete.
    *
    * The 2xx body is validated, not cast. A single issue is not a list: there
    * is no safe-empty shape to degrade to, and the identifier-autolink caller
