@@ -273,10 +273,21 @@ func TestIssueWakeupConcurrentDispatchIsIdempotent(t *testing.T) {
 	}
 	wg.Wait()
 	close(errs)
+	// dispatch fails fast (lock_timeout 50ms) instead of queueing behind the
+	// rule's lock holder; Tick retries it next round. So a loser may see
+	// lock_not_available when the winner's transaction runs long, as on a
+	// slow CI runner. The contract is one winner and one run.
+	winners := 0
 	for err := range errs {
-		if err != nil {
+		switch {
+		case err == nil:
+			winners++
+		case !isLockTimeout(err):
 			t.Error(err)
 		}
+	}
+	if winners == 0 {
+		t.Fatal("no dispatch succeeded")
 	}
 	if n := f.Count(t, "SELECT count(*) FROM agent_task_queue WHERE context->>'wakeup_id'=$1", util.UUIDToString(w.ID)); n != 1 {
 		t.Fatalf("created %d runs", n)
