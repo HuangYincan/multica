@@ -337,8 +337,11 @@ func TestCreateIssuePropertiesCommitFailureHasNoSideEffects(t *testing.T) {
 	injected := errors.New("injected issue commit failure")
 	issueService := NewIssueService(q, &rejectIssueCommitTxStarter{pool: pool, err: injected}, bus, analyticsSink, taskService)
 	var taskCountBefore int
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM agent_task_queue`).Scan(&taskCountBefore); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM agent_task_queue WHERE agent_id = $1`, agentUUID).Scan(&taskCountBefore); err != nil {
 		t.Fatalf("count tasks before create: %v", err)
+	}
+	if taskCountBefore != 0 {
+		t.Fatalf("fixture agent has %d tasks before create, want 0", taskCountBefore)
 	}
 
 	_, err := issueService.Create(ctx, IssueCreateParams{
@@ -367,10 +370,10 @@ func TestCreateIssuePropertiesCommitFailureHasNoSideEffects(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM issue WHERE workspace_id = $1 AND title = 'properties commit failure'`, workspaceUUID).Scan(&issueCount); err != nil {
 		t.Fatalf("count issues: %v", err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM agent_task_queue`).Scan(&taskCountAfter); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM agent_task_queue WHERE agent_id = $1`, agentUUID).Scan(&taskCountAfter); err != nil {
 		t.Fatalf("count tasks: %v", err)
 	}
-	if issueCount != 0 || taskCountAfter != taskCountBefore {
+	if issueCount != 0 || taskCountAfter != 0 {
 		t.Fatalf("failed commit left side effects: issues=%d tasks_before=%d tasks_after=%d", issueCount, taskCountBefore, taskCountAfter)
 	}
 }
