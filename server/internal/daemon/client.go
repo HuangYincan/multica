@@ -434,8 +434,34 @@ func (c *Client) ExtendTaskPrepareLease(ctx context.Context, runtimeID, taskID s
 	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/runtimes/%s/tasks/%s/prepare-lease", runtimeID, taskID), map[string]any{}, nil)
 }
 
-func (c *Client) StartTask(ctx context.Context, taskID string) error {
-	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/tasks/%s/start", taskID), map[string]any{}, nil)
+func (c *Client) StartTask(ctx context.Context, taskID string, capabilities ...string) error {
+	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/tasks/%s/start", taskID), map[string]any{
+		"capabilities": capabilities,
+	}, nil)
+}
+
+type TaskSupplement struct {
+	CommentID  string `json:"comment_id"`
+	AuthorName string `json:"author_name"`
+	Content    string `json:"content"`
+}
+
+func (c *Client) ClaimTaskSupplement(ctx context.Context, taskID string) (*TaskSupplement, error) {
+	var supplement TaskSupplement
+	if err := c.postJSON(ctx, fmt.Sprintf("/api/daemon/tasks/%s/supplements/claim", taskID), map[string]any{}, &supplement); err != nil {
+		return nil, err
+	}
+	if supplement.CommentID == "" {
+		return nil, nil
+	}
+	return &supplement, nil
+}
+
+func (c *Client) AckTaskSupplement(ctx context.Context, taskID, commentID string, delivered bool, errText string) error {
+	return c.postJSONWithRetry(ctx,
+		fmt.Sprintf("/api/daemon/tasks/%s/supplements/%s/ack", taskID, commentID),
+		map[string]any{"delivered": delivered, "error": errText}, nil,
+		[]time.Duration{0, 100 * time.Millisecond, 300 * time.Millisecond})
 }
 
 // MarkTaskWaitingLocalDirectory parks a freshly-dispatched task in the

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -4030,7 +4031,6 @@ func (h *Handler) ListPendingTasksByRuntime(w http.ResponseWriter, r *http.Reque
 	for i, t := range tasks {
 		resp[i] = taskToResponse(t, workspaceID)
 	}
-
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -4077,7 +4077,15 @@ func (h *Handler) StartTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := h.TaskService.StartTask(r.Context(), parseUUID(taskID))
+	var req struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	enableTaskSupplement := slices.Contains(req.Capabilities, protocol.DaemonCapabilityTaskSupplementV1)
+	task, err := h.TaskService.StartTask(r.Context(), parseUUID(taskID), enableTaskSupplement)
 	if err != nil {
 		slog.Warn("start task failed", "task_id", taskID, "error", err)
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -5610,6 +5618,7 @@ func (h *Handler) ListTasksByIssue(w http.ResponseWriter, r *http.Request) {
 	for i, t := range tasks {
 		resp[i] = taskToResponse(t, workspaceID)
 	}
+	h.hydrateTaskSupplementMetadata(r.Context(), r, issue.WorkspaceID, tasks, resp)
 	// Execution-log rows render the "on behalf of <member>" badge, so this
 	// issue-facing surface must resolve initiator/originator names (departed-safe,
 	// one batch) — otherwise the badge falls back to "someone" on issue detail.

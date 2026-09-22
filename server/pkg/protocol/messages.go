@@ -61,6 +61,11 @@ const (
 	// work, so such a daemon keeps getting a fresh directory and the parent's
 	// stays untouched on disk.
 	DaemonCapabilityCheckoutKeepsWorkV1 = "checkout-keeps-work-v1"
+	// DaemonCapabilityTaskSupplementV1 advertises that a Codex run can accept
+	// an additional text instruction without cancelling or starting a task.
+	// It is persisted when this exact task enters running; absence always means
+	// unsupported so mixed server/daemon versions fail closed.
+	DaemonCapabilityTaskSupplementV1 = "task-supplement-v1"
 
 	// AppCapabilityChatDraftRestoreV1 is advertised (X-Client-Capabilities) by
 	// app clients that understand the durable draft-restore recovery path:

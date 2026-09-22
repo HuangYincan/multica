@@ -32,6 +32,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/daemon/repocache"
 	"github.com/multica-ai/multica/server/internal/selfexec"
 	"github.com/multica-ai/multica/server/pkg/agent"
+	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/redact"
 	"github.com/multica-ai/multica/server/pkg/skillbundle"
 	"github.com/multica-ai/multica/server/pkg/taskfailure"
@@ -8370,7 +8371,11 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// taskfailure.Classify path records the failure with the same
 	// "start task failed: <…>" string and the same failure_reason
 	// taxonomy as before — see MUL-2946 for the classifier contract.
-	if err := d.client.StartTask(prepareCtx, task.ID); err != nil {
+	var taskCapabilities []string
+	if provider == "codex" {
+		taskCapabilities = append(taskCapabilities, protocol.DaemonCapabilityTaskSupplementV1)
+	}
+	if err := d.client.StartTask(prepareCtx, task.ID, taskCapabilities...); err != nil {
 		stopPrepareLease()
 		return TaskResult{}, fmt.Errorf("start task failed: %w", err)
 	}
@@ -9246,6 +9251,23 @@ func freshSessionMayHelp(errText string) bool {
 // messages and is owned by the caller so a same-task retry continues the
 // sequence instead of restarting at 1 — the server orders the transcript by
 // seq alone, and duplicate seqs would interleave the two attempts' rows.
+func formatTaskSupplementInstruction(authorName, content string) string {
+	authorName = strings.Join(strings.Fields(authorName), " ")
+	if authorName == "" {
+		authorName = "a user"
+	}
+	return fmt.Sprintf(`[ADDITIONAL GUIDANCE] Human %s added guidance while you were working.
+
+Treat this as additional guidance for the same active task, not as a replacement:
+- Preserve and complete the original objective.
+- Incorporate this guidance into the work and the turn's single final response.
+- Do not send a separate acknowledgement.
+- Replace or cancel the original objective only if the human explicitly asks for replacement or cancellation.
+
+Human message:
+%s`, strconv.Quote(authorName), content)
+}
+
 func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, prompt string, opts agent.ExecOptions, taskLog *slog.Logger, taskID, codexHome string, msgSeq *atomic.Int32) (agent.Result, int32, error) {
 	phaseRecorder := taskPhaseRecorderFromContext(ctx)
 	// Wrap the caller's ctx so the idle watchdog (below) can interrupt both
@@ -9272,6 +9294,60 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 	defer d.runningTasks.Add(-1)
 	phaseRecorder.Mark(taskPhaseRuntimeStarted)
 	taskLog.Debug("backend started, draining messages")
+
+	// One goroutine serially claims additions for this exact run and injects
+	// them into the active Codex turn. Polling is deliberately task-scoped: a
+	// new daemon talking to an old server observes one 404 and stops, while an
+	// old daemon never negotiated support when it started the task.
+	supplementCtx, cancelSupplements := context.WithCancel(agentCtx)
+	supplementsDone := make(chan struct{})
+	if session.Supplement != nil {
+		go func() {
+			defer close(supplementsDone)
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+			for {
+				claimCtx, cancel := context.WithTimeout(supplementCtx, 3*time.Second)
+				supplement, claimErr := d.client.ClaimTaskSupplement(claimCtx, taskID)
+				cancel()
+				if claimErr != nil {
+					var reqErr *requestError
+					if errors.As(claimErr, &reqErr) && (reqErr.StatusCode == http.StatusNotFound || reqErr.StatusCode == http.StatusPreconditionFailed) {
+						return
+					}
+					if supplementCtx.Err() != nil {
+						return
+					}
+					taskLog.Debug("additional message claim failed", "error", claimErr)
+				} else if supplement != nil {
+					injectCtx, cancelInject := context.WithTimeout(supplementCtx, 8*time.Second)
+					injectErr := session.Supplement(injectCtx, formatTaskSupplementInstruction(supplement.AuthorName, supplement.Content))
+					cancelInject()
+					errText := ""
+					if injectErr != nil {
+						errText = injectErr.Error()
+					}
+					ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+					ackErr := d.client.AckTaskSupplement(ackCtx, taskID, supplement.CommentID, injectErr == nil, errText)
+					cancelAck()
+					if ackErr != nil {
+						taskLog.Warn("additional message acknowledgement failed", "comment_id", supplement.CommentID, "error", ackErr)
+					}
+				}
+				select {
+				case <-supplementCtx.Done():
+					return
+				case <-ticker.C:
+				}
+			}
+		}()
+	} else {
+		close(supplementsDone)
+	}
+	defer func() {
+		cancelSupplements()
+		<-supplementsDone
+	}()
 
 	// Bound the drain loop only when there is a wall-clock cap. With a positive
 	// opts.Timeout, give the drain a slightly longer deadline than the backend

@@ -4165,8 +4165,12 @@ func (s *TaskService) maybeLogClaimSlow(agentID pgtype.UUID, outcome string, sta
 
 // StartTask transitions a dispatched task to running.
 // Issue status is NOT changed here — the agent manages it via the CLI.
-func (s *TaskService) StartTask(ctx context.Context, taskID pgtype.UUID) (*db.AgentTaskQueue, error) {
-	task, err := s.Queries.StartAgentTask(ctx, taskID)
+func (s *TaskService) StartTask(ctx context.Context, taskID pgtype.UUID, supplementSupport ...bool) (*db.AgentTaskQueue, error) {
+	enableTaskSupplement := len(supplementSupport) > 0 && supplementSupport[0]
+	task, err := s.Queries.StartAgentTaskWithSupplement(ctx, db.StartAgentTaskWithSupplementParams{
+		TaskID:               taskID,
+		EnableTaskSupplement: enableTaskSupplement,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("start task: %w", err)
 	}

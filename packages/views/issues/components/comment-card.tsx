@@ -40,6 +40,7 @@ import { useCommentTriggerPreview } from "../hooks/use-comment-trigger-preview";
 import type { TimelineEntry, Attachment } from "@multica/core/types";
 import { contentReferencesAttachment } from "@multica/core/types";
 import { isDeletedComment } from "@multica/core/issues/comment-deletion";
+import { useRetryTaskSupplement } from "@multica/core/issues/mutations";
 import { useConfigStore } from "@multica/core/config";
 import { selectStandaloneAttachments } from "@multica/core/attachments/image-sequence";
 import { useCommentCollapseStore, useCommentDraftStore } from "@multica/core/issues/stores";
@@ -605,6 +606,41 @@ function CommentRevisionConflict({
 // Single comment row (used for both parent and replies within the same Card)
 // ---------------------------------------------------------------------------
 
+function SupplementReceipt({ issueId, entry }: { issueId: string; entry: TimelineEntry }) {
+  const { t } = useT("issues");
+  const locale = useLocale();
+  const retry = useRetryTaskSupplement(issueId);
+  if (!entry.supplement_task_id || !entry.supplement_status) return null;
+  if (entry.supplement_status === "pending" || entry.supplement_status === "delivering") {
+    return <p role="status" className="mt-1.5 text-caption text-muted-foreground">
+      {t(($) => $.inline_run.supplement_waiting_delivery)}
+    </p>;
+  }
+  if (entry.supplement_status === "delivered") {
+    const delivered = entry.supplement_delivered_at
+      ? new Date(entry.supplement_delivered_at).toLocaleString(locale)
+      : t(($) => $.inline_run.supplement_delivered_unknown_time);
+    return <p role="status" className="mt-1.5 text-caption text-success">
+      {t(($) => $.inline_run.supplement_delivered, { time: delivered })}
+      <span className="ml-1 text-muted-foreground">{t(($) => $.inline_run.supplement_delivered_notice)}</span>
+    </p>;
+  }
+  const ended = entry.supplement_failure_reason === "turn_ended";
+  const reason = ended
+    ? t(($) => $.inline_run.supplement_failure_turn_ended)
+    : entry.supplement_failure_reason || t(($) => $.inline_run.supplement_failure_unknown);
+  return <div role="alert" className="mt-1.5 flex items-center gap-2 text-caption text-destructive">
+    <span>{t(($) => $.inline_run.supplement_not_delivered, { reason })}</span>
+    {!ended && <Button type="button" size="xs" variant="outline" disabled={retry.isPending}
+      onClick={() => retry.mutate({ taskId: entry.supplement_task_id!, commentId: entry.id }, {
+        onError: () => toast.error(t(($) => $.inline_run.supplement_retry_failed)),
+      })}>
+      {retry.isPending && <Loader2 className="size-3 animate-spin motion-reduce:animate-none" />}
+      {t(($) => $.inline_run.supplement_retry)}
+    </Button>}
+  </div>;
+}
+
 function CommentRow({
   runHeader,
   runMetadata,
@@ -649,8 +685,8 @@ function CommentRow({
   const edit = useEditAttachmentState(issueId, entry, onEdit);
 
   const isOwn = entry.actor_type === "member" && entry.actor_id === currentUserId;
-  const canEditEntry = isOwn || (canModerate && entry.actor_type === "member");
-  const canDeleteEntry = isOwn || canModerate;
+  const canEditEntry = !entry.supplement_task_id && (isOwn || (canModerate && entry.actor_type === "member"));
+  const canDeleteEntry = !entry.supplement_task_id && (isOwn || canModerate);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const reactions = entry.reactions ?? [];
@@ -880,6 +916,9 @@ function CommentRow({
             <ReadonlyContent content={entry.content ?? ""} attachments={entry.attachments} />
           </div>
           <AttachmentList attachments={entry.attachments} content={entry.content} className="mt-1.5 pl-12 pr-4 max-md:pl-3 max-md:pr-3" />
+          <div className="pl-12 pr-4 max-md:pl-3 max-md:pr-3">
+            <SupplementReceipt issueId={issueId} entry={entry} />
+          </div>
           {retryableAgentFailureComment(entry) && (
             <TaskCommentRetryButton
               issueId={issueId}

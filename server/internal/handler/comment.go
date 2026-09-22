@@ -82,7 +82,11 @@ type CommentResponse struct {
 	// was blocked (no invoke permission, target unavailable, runtime offline) now
 	// reports that here instead of silently dropping the trigger, so the client
 	// can show "comment posted, but N targets were not triggered".
-	TriggerOutcomes []CommentTriggerOutcome `json:"trigger_outcomes,omitempty"`
+	TriggerOutcomes         []CommentTriggerOutcome `json:"trigger_outcomes,omitempty"`
+	SupplementTaskID        string                  `json:"supplement_task_id,omitempty"`
+	SupplementStatus        string                  `json:"supplement_status,omitempty"`
+	SupplementFailureReason *string                 `json:"supplement_failure_reason,omitempty"`
+	SupplementDeliveredAt   *string                 `json:"supplement_delivered_at,omitempty"`
 }
 
 // CommentTriggerOutcome is the per-target result of an explicit @agent / @squad
@@ -3309,6 +3313,15 @@ func (h *Handler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "comment not found")
 		return
 	}
+	if _, err := h.Queries.GetTaskSupplementByComment(r.Context(), db.GetTaskSupplementByCommentParams{
+		CommentID: existing.ID, WorkspaceID: wsUUID,
+	}); err == nil {
+		writeError(w, http.StatusConflict, "additional messages cannot be edited")
+		return
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusInternalServerError, "failed to verify additional message")
+		return
+	}
 
 	member, ok := h.workspaceMember(w, r, workspaceID)
 	if !ok {
@@ -3607,6 +3620,15 @@ func (h *Handler) DeleteComment(w http.ResponseWriter, r *http.Request) {
 
 	if comment.DeletedAt.Valid {
 		writeError(w, http.StatusNotFound, "comment not found")
+		return
+	}
+	if _, err := h.Queries.GetTaskSupplementByComment(r.Context(), db.GetTaskSupplementByCommentParams{
+		CommentID: comment.ID, WorkspaceID: wsUUID,
+	}); err == nil {
+		writeError(w, http.StatusConflict, "additional messages cannot be deleted")
+		return
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		writeError(w, http.StatusInternalServerError, "failed to verify additional message")
 		return
 	}
 

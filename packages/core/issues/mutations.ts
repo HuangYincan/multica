@@ -1198,6 +1198,54 @@ export function useCancelIssueRun(issueId: string) {
   });
 }
 
+export function useCreateTaskSupplement(issueId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskId, content, clientRequestId }: {
+      taskId: string;
+      content: string;
+      clientRequestId: string;
+    }) => api.createTaskSupplement(issueId, taskId, content, clientRequestId),
+    onSuccess: (comment) => {
+      const entry: TimelineEntry = {
+        type: "comment",
+        id: comment.id,
+        actor_type: comment.author_type,
+        actor_id: comment.author_id,
+        content: comment.content,
+        parent_id: comment.parent_id,
+        comment_type: comment.type,
+        reactions: comment.reactions ?? [],
+        attachments: comment.attachments ?? [],
+        created_at: comment.created_at,
+        updated_at: comment.updated_at,
+        supplement_task_id: comment.supplement_task_id,
+        supplement_status: comment.supplement_status,
+        supplement_failure_reason: comment.supplement_failure_reason,
+        supplement_delivered_at: comment.supplement_delivered_at,
+      };
+      client.setQueryData<TimelineCache>(issueKeys.timeline(issueId), (old) => {
+        if (!old) return [entry];
+        if (old.some((item) => item.id === entry.id)) return old;
+        return sortTimelineEntriesAsc([...old, entry]);
+      });
+      client.invalidateQueries({ queryKey: issueKeys.tasks(issueId) });
+    },
+  });
+}
+
+export function useRetryTaskSupplement(issueId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskId, commentId }: { taskId: string; commentId: string }) =>
+      api.retryTaskSupplement(issueId, taskId, commentId),
+    onSettled: () => {
+      client.invalidateQueries({ queryKey: issueKeys.timeline(issueId) });
+      client.invalidateQueries({ queryKey: issueKeys.tasks(issueId) });
+    },
+  });
+}
+
 export function useRetryIssueRun(issueId: string) {
   const client = useQueryClient();
   return useMutation({

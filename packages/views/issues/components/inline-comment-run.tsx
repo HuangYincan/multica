@@ -1,17 +1,18 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
-import { AlertCircle, Brain, ChevronRight, CirclePause, Clock3, ExternalLink, Loader2, MessageSquare, RotateCcw, ScrollText, Square, Terminal } from "lucide-react";
+import { AlertCircle, Brain, ChevronRight, CirclePause, Clock3, ExternalLink, Loader2, MessageSquare, MessageSquarePlus, RotateCcw, ScrollText, Send, Square, Terminal } from "lucide-react";
 import { toast } from "sonner";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useTraceIssueLabels } from "../../common/task-transcript/use-trace-issue-labels";
 import { useActorName } from "@multica/core/workspace/hooks";
 import { useTaskMessages } from "@multica/core/chat/queries";
-import { useCancelIssueRun, useRetryIssueRun } from "@multica/core/issues/mutations";
+import { useCancelIssueRun, useCreateTaskSupplement, useRetryIssueRun } from "@multica/core/issues/mutations";
 import { dispatchReasonCode } from "@multica/core/api";
 import type { AgentTask } from "@multica/core/types";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { Button } from "@multica/ui/components/ui/button";
+import { Textarea } from "@multica/ui/components/ui/textarea";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/ui/tooltip";
 import { cn } from "@multica/ui/lib/utils";
 import { AgentTranscriptDialog, StepBody } from "../../common/task-transcript/agent-transcript-dialog";
@@ -73,9 +74,13 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
   const [confirmStop, setConfirmStop] = useState(false);
   const [now, setNow] = useState(Date.now);
   const [visibleCount, setVisibleCount] = useState(12);
+  const [supplementOpen, setSupplementOpen] = useState(false);
+  const [supplementContent, setSupplementContent] = useState("");
+  const [supplementRequestId, setSupplementRequestId] = useState<string>();
   const animationVisibility = useRunAnimationVisibility<HTMLDivElement>();
   const cancel = useCancelIssueRun(task.issue_id);
   const retry = useRetryIssueRun(task.issue_id);
+  const supplement = useCreateTaskSupplement(task.issue_id);
   const regionId = useId();
   // Keep one disclosure button mounted across queued, live, and historical states.
   // Historical, collapsed runs still don't fetch transcripts.
@@ -116,6 +121,37 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
   const activityLabel = t(($) => $.inline_run.view_activity);
   const stepLabel = steps.length > 0 ? t(($) => $.inline_run.steps, { count: steps.length }) : "";
   const stopLabel = cancel.isPending || cancel.isSuccess ? t(($) => $.inline_run.stopping) : t(($) => $.inline_run.stop);
+  const canSupplement = task.status === "running"
+    && task.supplement_capability === "task-supplement-v1"
+    && task.can_supplement === true;
+  const supplementDisabledReason = task.status !== "running"
+    ? t(($) => $.inline_run.supplement_waiting_start)
+    : task.supplement_capability !== "task-supplement-v1"
+      ? t(($) => $.inline_run.supplement_unsupported)
+      : !task.can_supplement ? t(($) => $.inline_run.supplement_forbidden) : "";
+  const submitSupplement = () => {
+    const content = supplementContent.trim();
+    if (!content || !canSupplement || supplement.isPending) return;
+    const clientRequestId = supplementRequestId ?? crypto.randomUUID();
+    setSupplementRequestId(clientRequestId);
+    supplement.mutate({ taskId: task.id, content, clientRequestId }, {
+      onSuccess: () => {
+        setSupplementContent("");
+        setSupplementRequestId(undefined);
+        setSupplementOpen(false);
+      },
+      onError: (error) => {
+        const code = dispatchReasonCode(error);
+        toast.error(code === "task_supplement_turn_ended"
+          ? t(($) => $.inline_run.supplement_ended)
+          : code === "task_supplement_unsupported"
+            ? t(($) => $.inline_run.supplement_unsupported)
+            : code === "invocation_not_allowed"
+              ? t(($) => $.inline_run.supplement_forbidden)
+              : t(($) => $.inline_run.supplement_failed));
+      },
+    });
+  };
   const transcript = fullLogOpen && <AgentTranscriptDialog open onOpenChange={setFullLogOpen}
     task={task} items={items} agentName={name} isLive={active} finalFocus={logFromKeyboard}
     contentState={isPending ? <p role="status" className="text-body text-muted-foreground">{t(($) => $.inline_run.loading)}</p>
@@ -127,6 +163,18 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
     onClick={() => setConfirmStop(true)}>
     {cancel.isPending || cancel.isSuccess ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Square className="size-3.5" />}
   </Button>;
+  const supplementButton = active && <Tooltip>
+    <TooltipTrigger render={<span className="inline-flex">
+      <Button type="button" size="sm" variant="ghost" className="text-muted-foreground"
+        aria-label={t(($) => $.inline_run.supplement_action)}
+        disabled={!canSupplement}
+        onClick={() => setSupplementOpen((open) => !open)}>
+        <MessageSquarePlus className="size-3.5" />
+        <span className="@max-[32rem]/run:sr-only">{t(($) => $.inline_run.supplement_action)}</span>
+      </Button>
+    </span>} />
+    <TooltipContent>{canSupplement ? t(($) => $.inline_run.supplement_action) : supplementDisabledReason}</TooltipContent>
+  </Tooltip>;
   const stopDialog = <TerminateTaskConfirmDialog open={confirmStop} onOpenChange={setConfirmStop}
     showRunningNote={task.status !== "queued"}
     onConfirm={() => cancel.mutate(task.id, { onError: () => toast.error(t(($) => $.execution_log.cancel_failed)) })} />;
@@ -171,6 +219,7 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
           <ChevronRight ref={state.disclosure.chevronRef} aria-hidden className={cn("size-3.5 shrink-0", expanded && "rotate-90")} />
         </button>
         <span className={cn("shrink-0 whitespace-nowrap text-caption tabular-nums text-muted-foreground", showIdentity && !active && "@max-[32rem]/run:hidden")}>{elapsed}</span>
+        {supplementButton}
         {stopButton}
         {!hasReply && (task.status === "failed" || task.status === "cancelled") && <Button
           size="sm" variant="ghost" className={cn("text-muted-foreground", showIdentity && "@max-[32rem]/run:size-7 @max-[32rem]/run:p-0")} disabled={retry.isPending || retry.isSuccess}
@@ -181,6 +230,31 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
         </Button>}
       </div>
       <div className={cn(showIdentity && "pl-8")}>
+        {supplementOpen && <div className="mt-2 space-y-2 rounded-md border bg-muted/20 p-2">
+          <Textarea value={supplementContent} autoFocus rows={3}
+            placeholder={t(($) => $.inline_run.supplement_placeholder)}
+            disabled={supplement.isPending}
+            onChange={(event) => {
+              setSupplementContent(event.target.value);
+              setSupplementRequestId(undefined);
+            }}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                event.preventDefault();
+                submitSupplement();
+              }
+            }} />
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-micro text-muted-foreground">{canSupplement
+              ? t(($) => $.inline_run.supplement_notice)
+              : task.status !== "running" ? t(($) => $.inline_run.supplement_ended) : supplementDisabledReason}</p>
+            <Button type="button" size="sm" disabled={!supplementContent.trim() || supplement.isPending || !canSupplement}
+              onClick={submitSupplement}>
+              {supplement.isPending ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Send className="size-3.5" />}
+              {t(($) => $.inline_run.supplement_send)}
+            </Button>
+          </div>
+        </div>}
         {output && <div className="mt-2 text-body"><ReadonlyContent content={redactSecrets(output)} /></div>}
         {failure && <p className="mt-1 text-caption text-destructive">{failure}</p>}
         {expanded && <div id={regionId} className="mt-2 min-w-0 space-y-1">

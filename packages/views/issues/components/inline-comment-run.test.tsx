@@ -11,6 +11,7 @@ import { InlineCommentRun } from "./inline-comment-run";
 
 vi.mock("@multica/core/api", () => ({ api: {
   getIssue: vi.fn(), listTaskMessages: vi.fn(), cancelTask: vi.fn(), rerunIssue: vi.fn(),
+  createTaskSupplement: vi.fn(), retryTaskSupplement: vi.fn(),
 }, dispatchReasonCode: () => undefined }));
 vi.mock("@multica/core/hooks", () => ({ useWorkspaceId: () => "workspace" }));
 vi.mock("@multica/core/workspace/hooks", () => ({ useActorName: () => ({ getActorName: () => "Reviewer" }) }));
@@ -43,6 +44,44 @@ function setup(initialTask: AgentTask, hasReply = false, presentation: "inline" 
 }
 
 describe("InlineCommentRun", () => {
+  it("shows fail-closed additional-message availability and sends to the exact run", async () => {
+    vi.mocked(api.listTaskMessages).mockResolvedValue([]);
+    const unsupported = setup(task());
+    expect(screen.getByRole("button", { name: "Add message" })).toBeDisabled();
+    cleanup();
+
+    vi.mocked(api.createTaskSupplement).mockResolvedValue({
+      id: "supplement-comment", issue_id: "issue", author_type: "member", author_id: "user",
+      content: "also add a rollback note", type: "comment", parent_id: null, reactions: [], attachments: [],
+      created_at: "2026-09-07T00:00:10Z", updated_at: "2026-09-07T00:00:10Z",
+      resolved_at: null, resolved_by_type: null, resolved_by_id: null,
+      supplement_task_id: id, supplement_status: "pending",
+    });
+    setup(task({ supplement_capability: "task-supplement-v1", can_supplement: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Add message" }));
+    const input = screen.getByPlaceholderText("Add guidance for this running turn");
+    fireEvent.change(input, { target: { value: "also add a rollback note" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(api.createTaskSupplement).toHaveBeenCalledWith(
+      "issue", id, "also add a rollback note", expect.any(String),
+    ));
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByPlaceholderText("Add guidance for this running turn")).not.toBeInTheDocument());
+    unsupported.client.clear();
+  });
+
+  it("preserves additional-message text when delivery submission fails", async () => {
+    vi.mocked(api.listTaskMessages).mockResolvedValue([]);
+    vi.mocked(api.createTaskSupplement).mockRejectedValue(new Error("run ended"));
+    setup(task({ supplement_capability: "task-supplement-v1", can_supplement: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Add message" }));
+    const input = screen.getByPlaceholderText("Add guidance for this running turn");
+    fireEvent.change(input, { target: { value: "preserve this draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(api.createTaskSupplement).toHaveBeenCalled());
+    expect(input).toHaveValue("preserve this draft");
+  });
+
   it("previews streamed agent messages in collapsed steps and expands the full body", async () => {
     const message: TaskMessagePayload = {
       task_id: id, issue_id: "issue", seq: 1, type: "text", content: "Checking the PR",

@@ -973,6 +973,26 @@ describe("ApiClient", () => {
     ]);
   });
 
+  it("submits an additional message to one exact run with an idempotency key", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      id: "comment-1", issue_id: "issue-1", author_type: "member", author_id: "user-1",
+      content: "also add rollback", type: "comment", parent_id: null, reactions: [], attachments: [],
+      created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
+      supplement_task_id: "task-1", supplement_status: "pending",
+    }), { status: 201, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new ApiClient("https://api.example.test");
+    const comment = await client.createTaskSupplement("issue-1", "task-1", "also add rollback", "request-1");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/api/issues/issue-1/tasks/task-1/supplements",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ content: "also add rollback", client_request_id: "request-1" }),
+      }),
+    );
+    expect(comment).toMatchObject({ supplement_task_id: "task-1", supplement_status: "pending" });
+  });
+
   it("keeps task runs when optional comment coverage is malformed", async () => {
     vi.stubGlobal(
       "fetch",
