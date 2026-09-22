@@ -23,6 +23,13 @@ import (
 // The relation stays one level deep in both directions: a target must not be
 // a duplicate itself, and an issue that others are marked as duplicates of
 // cannot be marked. Nothing is collapsed or re-pointed automatically.
+//
+// A mark only counts while the duplicate is cancelled and its original exists.
+// New writes keep the pointer to that rule, but a server predating this feature
+// (a rollback that kept the column) can reopen a duplicate or delete an
+// original without touching it. Every read therefore applies the rule itself,
+// and the next write to such an issue drops the leftover pointer, so a rollback
+// needs no repair step.
 
 var (
 	errDuplicateTargetNotFound    = errors.New("duplicate target not found in this workspace")
@@ -85,7 +92,7 @@ func lockAndCheckDuplicateMark(ctx context.Context, q *db.Queries, workspaceID, 
 			continue
 		}
 		targetFound = true
-		if row.DuplicateOfIssueID.Valid {
+		if row.IsDuplicate {
 			return errDuplicateTargetIsDuplicate
 		}
 	}
@@ -132,7 +139,7 @@ func (h *Handler) ListIssueDuplicates(w http.ResponseWriter, r *http.Request) {
 	fill := h.newStatusCategoryFiller(r.Context(), issue.WorkspaceID)
 
 	var duplicateOf *IssueResponse
-	if issue.DuplicateOfIssueID.Valid {
+	if issue.Status == issuestatus.Cancelled && issue.DuplicateOfIssueID.Valid {
 		original, err := h.Queries.GetIssueInWorkspace(r.Context(), db.GetIssueInWorkspaceParams{
 			ID:          issue.DuplicateOfIssueID,
 			WorkspaceID: issue.WorkspaceID,

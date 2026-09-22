@@ -1024,10 +1024,12 @@ func (q *Queries) GetIssueTriageState(ctx context.Context, id pgtype.UUID) (pgty
 }
 
 const issueHasDuplicates = `-- name: IssueHasDuplicates :one
+
 SELECT EXISTS (
     SELECT 1 FROM issue
     WHERE workspace_id = $1
       AND duplicate_of_issue_id = $2::uuid
+      AND status = 'cancelled'
 ) AS has_duplicates
 `
 
@@ -1036,6 +1038,10 @@ type IssueHasDuplicatesParams struct {
 	IssueID     pgtype.UUID `json:"issue_id"`
 }
 
+// A mark only counts while the duplicate is cancelled and its original still
+// exists. Writes keep that true, but a server predating this feature (after a
+// rollback that kept the column) can reopen a duplicate or delete an original
+// without touching the pointer, so every read applies the rule itself.
 func (q *Queries) IssueHasDuplicates(ctx context.Context, arg IssueHasDuplicatesParams) (bool, error) {
 	row := q.db.QueryRow(ctx, issueHasDuplicates, arg.WorkspaceID, arg.IssueID)
 	var has_duplicates bool
@@ -1180,6 +1186,7 @@ const listIssueDuplicates = `-- name: ListIssueDuplicates :many
 SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, revision, last_activity_at, triage_state, duplicate_of_issue_id FROM issue
 WHERE workspace_id = $1
   AND duplicate_of_issue_id = $2::uuid
+  AND status = 'cancelled'
 ORDER BY created_at ASC, id ASC
 `
 
@@ -1778,12 +1785,17 @@ func (q *Queries) LockIssueForDescriptionUpdate(ctx context.Context, arg LockIss
 }
 
 const lockIssuesForDuplicateMark = `-- name: LockIssuesForDuplicateMark :many
-SELECT id, duplicate_of_issue_id
-FROM issue
-WHERE workspace_id = $1
-  AND id = ANY($2::uuid[])
-ORDER BY id
-FOR UPDATE
+SELECT i.id,
+       (i.status = 'cancelled' AND EXISTS (
+           SELECT 1 FROM issue AS original
+           WHERE original.id = i.duplicate_of_issue_id
+             AND original.workspace_id = i.workspace_id
+       ))::boolean AS is_duplicate
+FROM issue AS i
+WHERE i.workspace_id = $1
+  AND i.id = ANY($2::uuid[])
+ORDER BY i.id
+FOR UPDATE OF i
 `
 
 type LockIssuesForDuplicateMarkParams struct {
@@ -1792,14 +1804,15 @@ type LockIssuesForDuplicateMarkParams struct {
 }
 
 type LockIssuesForDuplicateMarkRow struct {
-	ID                 pgtype.UUID `json:"id"`
-	DuplicateOfIssueID pgtype.UUID `json:"duplicate_of_issue_id"`
+	ID          pgtype.UUID `json:"id"`
+	IsDuplicate bool        `json:"is_duplicate"`
 }
 
 // Locks the issue being marked and its target, in id order, before the mark is
 // validated. Two marks that share an issue (A -> B racing B -> A, or C -> A
 // racing A -> B) then run one after the other, so the second one validates
 // against what the first wrote. A target outside the workspace is not returned.
+// is_duplicate applies the same validity rule as the reads below.
 func (q *Queries) LockIssuesForDuplicateMark(ctx context.Context, arg LockIssuesForDuplicateMarkParams) ([]LockIssuesForDuplicateMarkRow, error) {
 	rows, err := q.db.Query(ctx, lockIssuesForDuplicateMark, arg.WorkspaceID, arg.IssueIds)
 	if err != nil {
@@ -1809,7 +1822,7 @@ func (q *Queries) LockIssuesForDuplicateMark(ctx context.Context, arg LockIssues
 	items := []LockIssuesForDuplicateMarkRow{}
 	for rows.Next() {
 		var i LockIssuesForDuplicateMarkRow
-		if err := rows.Scan(&i.ID, &i.DuplicateOfIssueID); err != nil {
+		if err := rows.Scan(&i.ID, &i.IsDuplicate); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -2019,12 +2032,17 @@ WITH wakeup_source AS MATERIALIZED (SELECT set_config('multica.source_task_id', 
         $13::uuid AS next_parent_issue_id,
         $14::uuid AS next_project_id,
         $15::integer AS next_stage,
-        -- A duplicate pointer only lives while the issue is cancelled, so any
-        -- other status clears it; that is how a duplicate mark is removed.
-        -- Otherwise a supplied pointer is set and an omitted one is kept.
+        -- A supplied pointer marks the issue (the handler also sets cancelled).
+        -- Otherwise a mark only survives a write that leaves an already
+        -- cancelled issue cancelled. Every other write drops it: reopening is
+        -- how a mark is removed, and re-entering cancelled does not revive a
+        -- pointer that a server predating this rule left on a reopened issue.
         CASE
-            WHEN COALESCE($6::text, i.status) <> 'cancelled' THEN NULL
-            ELSE COALESCE($16::uuid, i.duplicate_of_issue_id)
+            WHEN $16::uuid IS NOT NULL
+                THEN $16::uuid
+            WHEN i.status = 'cancelled' AND COALESCE($6::text, i.status) = 'cancelled'
+                THEN i.duplicate_of_issue_id
+            ELSE NULL
         END AS next_duplicate_of_issue_id
     FROM issue AS i
     WHERE i.id = $1
@@ -2162,10 +2180,10 @@ const updateIssueStatus = `-- name: UpdateIssueStatus :one
 WITH wakeup_source AS MATERIALIZED (SELECT set_config('multica.source_task_id', COALESCE($4::uuid::text, ''), true))
 UPDATE issue AS i SET
     status = $2,
-    -- Same rule as UpdateIssue: a duplicate pointer only lives while the
-    -- issue is cancelled. Background writers (GitHub, task recovery) go
-    -- through here, so they cannot leave a pointer on a reopened issue.
-    duplicate_of_issue_id = CASE WHEN $2 = 'cancelled' THEN i.duplicate_of_issue_id ELSE NULL END,
+    -- Same rule as UpdateIssue: a mark only survives cancelled -> cancelled.
+    -- Background writers (GitHub, task recovery) go through here, so they
+    -- cannot leave a pointer on a reopened issue.
+    duplicate_of_issue_id = CASE WHEN $2 = 'cancelled' AND i.status = 'cancelled' THEN i.duplicate_of_issue_id ELSE NULL END,
     position = CASE WHEN i.status IS DISTINCT FROM $2 THEN (
         SELECT COALESCE(MIN(target.position), 0) - 1
         FROM issue AS target

@@ -235,12 +235,17 @@ WITH wakeup_source AS MATERIALIZED (SELECT set_config('multica.source_task_id', 
         sqlc.narg('parent_issue_id')::uuid AS next_parent_issue_id,
         sqlc.narg('project_id')::uuid AS next_project_id,
         sqlc.narg('stage')::integer AS next_stage,
-        -- A duplicate pointer only lives while the issue is cancelled, so any
-        -- other status clears it; that is how a duplicate mark is removed.
-        -- Otherwise a supplied pointer is set and an omitted one is kept.
+        -- A supplied pointer marks the issue (the handler also sets cancelled).
+        -- Otherwise a mark only survives a write that leaves an already
+        -- cancelled issue cancelled. Every other write drops it: reopening is
+        -- how a mark is removed, and re-entering cancelled does not revive a
+        -- pointer that a server predating this rule left on a reopened issue.
         CASE
-            WHEN COALESCE(sqlc.narg('status')::text, i.status) <> 'cancelled' THEN NULL
-            ELSE COALESCE(sqlc.narg('duplicate_of_issue_id')::uuid, i.duplicate_of_issue_id)
+            WHEN sqlc.narg('duplicate_of_issue_id')::uuid IS NOT NULL
+                THEN sqlc.narg('duplicate_of_issue_id')::uuid
+            WHEN i.status = 'cancelled' AND COALESCE(sqlc.narg('status')::text, i.status) = 'cancelled'
+                THEN i.duplicate_of_issue_id
+            ELSE NULL
         END AS next_duplicate_of_issue_id
     FROM issue AS i
     WHERE i.id = $1
@@ -308,10 +313,10 @@ RETURNING i.*;
 WITH wakeup_source AS MATERIALIZED (SELECT set_config('multica.source_task_id', COALESCE(sqlc.narg('source_task_id')::uuid::text, ''), true))
 UPDATE issue AS i SET
     status = $2,
-    -- Same rule as UpdateIssue: a duplicate pointer only lives while the
-    -- issue is cancelled. Background writers (GitHub, task recovery) go
-    -- through here, so they cannot leave a pointer on a reopened issue.
-    duplicate_of_issue_id = CASE WHEN $2 = 'cancelled' THEN i.duplicate_of_issue_id ELSE NULL END,
+    -- Same rule as UpdateIssue: a mark only survives cancelled -> cancelled.
+    -- Background writers (GitHub, task recovery) go through here, so they
+    -- cannot leave a pointer on a reopened issue.
+    duplicate_of_issue_id = CASE WHEN $2 = 'cancelled' AND i.status = 'cancelled' THEN i.duplicate_of_issue_id ELSE NULL END,
     position = CASE WHEN i.status IS DISTINCT FROM $2 THEN (
         SELECT COALESCE(MIN(target.position), 0) - 1
         FROM issue AS target
@@ -333,24 +338,37 @@ RETURNING i.*;
 -- validated. Two marks that share an issue (A -> B racing B -> A, or C -> A
 -- racing A -> B) then run one after the other, so the second one validates
 -- against what the first wrote. A target outside the workspace is not returned.
-SELECT id, duplicate_of_issue_id
-FROM issue
-WHERE workspace_id = sqlc.arg('workspace_id')
-  AND id = ANY(sqlc.arg('issue_ids')::uuid[])
-ORDER BY id
-FOR UPDATE;
+-- is_duplicate applies the same validity rule as the reads below.
+SELECT i.id,
+       (i.status = 'cancelled' AND EXISTS (
+           SELECT 1 FROM issue AS original
+           WHERE original.id = i.duplicate_of_issue_id
+             AND original.workspace_id = i.workspace_id
+       ))::boolean AS is_duplicate
+FROM issue AS i
+WHERE i.workspace_id = sqlc.arg('workspace_id')
+  AND i.id = ANY(sqlc.arg('issue_ids')::uuid[])
+ORDER BY i.id
+FOR UPDATE OF i;
+
+-- A mark only counts while the duplicate is cancelled and its original still
+-- exists. Writes keep that true, but a server predating this feature (after a
+-- rollback that kept the column) can reopen a duplicate or delete an original
+-- without touching the pointer, so every read applies the rule itself.
 
 -- name: IssueHasDuplicates :one
 SELECT EXISTS (
     SELECT 1 FROM issue
     WHERE workspace_id = sqlc.arg('workspace_id')
       AND duplicate_of_issue_id = sqlc.arg('issue_id')::uuid
+      AND status = 'cancelled'
 ) AS has_duplicates;
 
 -- name: ListIssueDuplicates :many
 SELECT * FROM issue
 WHERE workspace_id = sqlc.arg('workspace_id')
   AND duplicate_of_issue_id = sqlc.arg('issue_id')::uuid
+  AND status = 'cancelled'
 ORDER BY created_at ASC, id ASC;
 
 -- name: ClearIssueDuplicatesOf :many

@@ -282,3 +282,59 @@ func TestConcurrentCrossMarksLeaveNoCycle(t *testing.T) {
 		}
 	}
 }
+
+// A server predating this feature (a rollback that keeps the column) writes
+// status and deletes issues without touching duplicate_of_issue_id. These
+// tests make those writes with raw SQL: the leftover pointer must never be
+// shown or enforced, and must not come back when the issue is cancelled again.
+
+func TestOlderServerReopenLeavesNoMark(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	original := dbfx.Issue(t, "dup-old-reopen-original")
+	duplicate := dbfx.Issue(t, "dup-old-reopen-duplicate")
+	other := dbfx.Issue(t, "dup-old-reopen-other")
+	markDuplicate(t, duplicate, original).Want(http.StatusOK)
+
+	dbfx.Exec(t, `UPDATE issue SET status = 'todo' WHERE id = $1`, duplicate)
+
+	if relations := listDuplicates(t, original); len(relations.Duplicates) != 0 {
+		t.Fatalf("original still lists the reopened issue: %+v", relations.Duplicates)
+	}
+	if relations := listDuplicates(t, duplicate); relations.DuplicateOf != nil {
+		t.Fatalf("reopened issue still reports an original: %+v", relations.DuplicateOf)
+	}
+	// The leftover pointer does not make the reopened issue a duplicate, so it
+	// can be the original of a new mark.
+	markDuplicate(t, other, duplicate).Want(http.StatusOK)
+
+	// Cancelling it again is not marking it: the leftover must not revive.
+	testutil.Call(t, testHandler.UpdateIssue, updateIssueRequest(duplicate, map[string]any{
+		"status": "cancelled",
+	})).Want(http.StatusOK)
+	if _, pointer, _ := duplicateState(t, duplicate); pointer != nil {
+		t.Fatalf("re-cancelling revived the leftover pointer %s", *pointer)
+	}
+	if relations := listDuplicates(t, original); len(relations.Duplicates) != 0 {
+		t.Fatalf("original lists the re-cancelled issue: %+v", relations.Duplicates)
+	}
+}
+
+func TestOlderServerDeleteLeavesNoMark(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	original := dbfx.Issue(t, "dup-old-delete-original")
+	duplicate := dbfx.Issue(t, "dup-old-delete-duplicate")
+	other := dbfx.Issue(t, "dup-old-delete-other")
+	markDuplicate(t, duplicate, original).Want(http.StatusOK)
+
+	dbfx.Exec(t, `DELETE FROM issue WHERE id = $1`, original)
+
+	if relations := listDuplicates(t, duplicate); relations.DuplicateOf != nil {
+		t.Fatalf("issue still reports a deleted original: %+v", relations.DuplicateOf)
+	}
+	// Its original is gone, so it is no longer a duplicate a mark must avoid.
+	markDuplicate(t, other, duplicate).Want(http.StatusOK)
+}
