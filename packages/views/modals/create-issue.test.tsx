@@ -474,10 +474,11 @@ vi.mock("../issues/components", () => ({
 }));
 
 vi.mock("../issues/components/pickers/custom-property-picker", () => ({
-  CustomPropertyValueInput: ({ property, onChange }: any) => (
+  CustomPropertyValueInput: ({ property, onChange, open }: any) => (
     <button
       type="button"
       aria-label={`Edit ${property.name}`}
+      data-open={open ? "true" : "false"}
       onClick={() => onChange("option-enterprise")}
     >
       {property.name}
@@ -874,7 +875,7 @@ describe("CreateIssueModal", () => {
     });
   });
 
-  it("sets configured custom property values after the issue is created", async () => {
+  it("includes configured custom properties in the atomic create request", async () => {
     const user = userEvent.setup();
 
     renderModal(<CreateIssueModal onClose={vi.fn()} />);
@@ -885,14 +886,44 @@ describe("CreateIssueModal", () => {
     await user.type(screen.getByPlaceholderText("Issue title"), "Enterprise follow-up");
     await user.click(screen.getByRole("button", { name: "Create Issue" }));
 
-    await waitFor(() => {
-      expect(mockSetIssueProperty).toHaveBeenCalledWith(
-        "issue-123",
-        "property-tier",
-        "option-enterprise",
-      );
-    });
+    await waitFor(() => expect(mockCreateIssue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Enterprise follow-up",
+        properties: { "property-tier": "option-enterprise" },
+      }),
+    ));
+    expect(mockSetIssueProperty).not.toHaveBeenCalled();
     expect(mockClearDraft).toHaveBeenCalled();
+  });
+
+  it("keeps the draft open and highlights the rejected custom property", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    mockDraftStore.draft.manual.propertyValues = {
+      "property-tier": "option-enterprise",
+    };
+    mockCreateIssue.mockRejectedValueOnce(
+      new ApiError("Customer tier is invalid", 400, "Bad Request", {
+        code: "invalid_issue_property",
+        property_id: "property-tier",
+        error: "Customer tier is invalid",
+      }),
+    );
+
+    renderModal(<CreateIssueModal onClose={onClose} />);
+    await user.type(screen.getByPlaceholderText("Issue title"), "Keep this draft");
+    await user.click(screen.getByRole("button", { name: "Create Issue" }));
+
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledWith("Customer tier is invalid"));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(mockClearDraft).not.toHaveBeenCalled();
+    expect(screen.getByPlaceholderText("Issue title")).toHaveValue("Keep this draft");
+    expect(document.querySelector('[data-property-error="true"]')).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Edit Customer tier" })).toHaveAttribute(
+      "data-open",
+      "true",
+    );
+    expect(mockSetIssueProperty).not.toHaveBeenCalled();
   });
 
   it("persists manual-mode uploads in the issue draft", async () => {
@@ -1352,6 +1383,9 @@ describe("CreateIssueModal", () => {
 
   it("submits source-context manual create through the dedicated endpoint", async () => {
     const user = userEvent.setup();
+    mockDraftStore.draft.manual.propertyValues = {
+      "property-tier": "option-enterprise",
+    };
     renderModal(
       <ManualCreatePanel
         onClose={vi.fn()}
@@ -1370,10 +1404,14 @@ describe("CreateIssueModal", () => {
       {
         mode: "manual",
         capture_token: "sha256:preview-token",
-        issue: expect.objectContaining({ title: "Create from source comment" }),
+        issue: expect.objectContaining({
+          title: "Create from source comment",
+          properties: { "property-tier": "option-enterprise" },
+        }),
       },
     ));
     expect(mockCreateIssue).not.toHaveBeenCalled();
+    expect(mockSetIssueProperty).not.toHaveBeenCalled();
   });
 
   // Start date is a low-frequency field — by default it lives behind the

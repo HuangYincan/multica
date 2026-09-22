@@ -77,10 +77,7 @@ import {
   useUpdateIssue,
 } from "@multica/core/issues/mutations";
 import { useAttachLabelToIssue } from "@multica/core/labels";
-import {
-  propertyListOptions,
-  useSetIssueProperty,
-} from "@multica/core/properties";
+import { propertyListOptions } from "@multica/core/properties";
 import {
   ApiError,
   DuplicateIssueErrorBodySchema,
@@ -279,6 +276,7 @@ export function ManualCreatePanel({
   const [labelIds, setLabelIds] = useState<string[]>(draft.manual.labelIds);
   const [propertyValues, setPropertyValues] = useState(draft.manual.propertyValues ?? {});
   const [customPropertyPickerId, setCustomPropertyPickerId] = useState<string | null>(null);
+  const [propertyErrorId, setPropertyErrorId] = useState<string | null>(null);
   const [projectId, setProjectId] = useState<string | undefined>(() => {
     if (data && "project_id" in data) {
       return (data.project_id as string | null) ?? undefined;
@@ -395,6 +393,7 @@ export function ManualCreatePanel({
     else next[propertyId] = value;
     setPropertyValues(next);
     setManual({ propertyValues: next });
+    if (propertyErrorId === propertyId) setPropertyErrorId(null);
   };
 
   // Inline pill reveal per toolbar field: kept by Settings → Preferences → Issue creation, holding a
@@ -415,7 +414,6 @@ export function ManualCreatePanel({
   const createCommentSubIssueMutation = useCreateCommentSubIssue();
   const updateIssueMutation = useUpdateIssue();
   const attachLabelMutation = useAttachLabelToIssue();
-  const setIssuePropertyMutation = useSetIssueProperty();
   const resetForNextIssue = () => {
     setTitle("");
     setStatus("todo");
@@ -425,6 +423,7 @@ export function ManualCreatePanel({
     setLabelIds([]);
     setPropertyValues({});
     setCustomPropertyPickerId(null);
+    setPropertyErrorId(null);
     setProjectId(undefined);
     setParentIssueId(undefined);
     setStage(null);
@@ -504,6 +503,7 @@ export function ManualCreatePanel({
               due_date: dueDate || undefined,
               attachment_ids: activeAttachmentIds.length > 0 ? activeAttachmentIds : undefined,
               label_ids: labelIds.length > 0 ? labelIds : undefined,
+              ...(Object.keys(propertyValues).length > 0 ? { properties: propertyValues } : {}),
               stage: parentIssueId && stage != null ? stage : undefined,
               project_id: projectId,
             },
@@ -526,39 +526,12 @@ export function ManualCreatePanel({
           // backend that predates this ignores the field — handled by the
           // compatibility fallback below.
           label_ids: labelIds.length > 0 ? labelIds : undefined,
+          ...(Object.keys(propertyValues).length > 0 ? { properties: propertyValues } : {}),
           parent_issue_id: parentIssueId,
           // Stage is only meaningful for a sub-issue (relative to its siblings).
           stage: parentIssueId && stage != null ? stage : undefined,
           project_id: projectId,
         });
-      }
-
-      // Custom-property values can only be addressed once the issue has an
-      // id. Keep the modal in its submitting state until every value settles
-      // so closing or "Create another" cannot race the fan-out.
-      const propertyEntries = Object.entries(propertyValues);
-      if (propertyEntries.length > 0) {
-        const results = await Promise.allSettled(
-          propertyEntries.map(([propertyId, value]) =>
-            setIssuePropertyMutation.mutateAsync({
-              issueId: issue.id,
-              propertyId,
-              value,
-            }),
-          ),
-        );
-        let failed = 0;
-        for (const result of results) {
-          if (result.status === "rejected") {
-            failed += 1;
-            console.error("[create-issue] custom property set failed", result.reason);
-          }
-        }
-        if (failed > 0) {
-          toast.error(
-            t(($) => $.create_issue.toast_set_properties_failed, { count: failed }),
-          );
-        }
       }
 
       // Link queued children to the new parent. Deferred to after create
@@ -683,6 +656,18 @@ export function ManualCreatePanel({
       }
       if (sourceCode === "issue_limit_reached") {
         showIssueLimitUpgradePrompt();
+        return false;
+      }
+      if (sourceCode === "invalid_issue_property" && err instanceof ApiError) {
+        const propertyId =
+          err.body && typeof err.body === "object"
+            ? (err.body as { property_id?: unknown }).property_id
+            : undefined;
+        if (typeof propertyId === "string") {
+          setPropertyErrorId(propertyId);
+          setCustomPropertyPickerId(propertyId);
+        }
+        toast.error(err.message || t(($) => $.create_issue.toast_failed));
         return false;
       }
       // Duplicate-issue is the only structured 409 the create endpoint
@@ -1106,28 +1091,36 @@ export function ManualCreatePanel({
                 .map((property) => {
                   const value = propertyValues[property.id];
                   return (
-                    <CustomPropertyValueInput
+                    <div
                       key={property.id}
-                      property={property}
-                      value={value}
-                      onChange={(next) => updatePropertyValue(property.id, next)}
-                      open={customPropertyPickerId === property.id}
-                      onOpenChange={(open) =>
-                        setCustomPropertyPickerId(open ? property.id : null)
-                      }
-                      triggerRender={<PillButton />}
-                      trigger={
-                        <>
-                          <PropertyIcon property={property} className="size-3.5 text-caption" />
-                          <span className="max-w-32 truncate">{property.name}</span>
-                          {value !== undefined && (
-                            <span className="max-w-40 truncate text-muted-foreground">
-                              <CustomPropertyValueDisplay property={property} value={value} />
-                            </span>
-                          )}
-                        </>
-                      }
-                    />
+                      data-property-error={propertyErrorId === property.id || undefined}
+                      className={cn(
+                        propertyErrorId === property.id &&
+                          "rounded-full ring-2 ring-destructive",
+                      )}
+                    >
+                      <CustomPropertyValueInput
+                        property={property}
+                        value={value}
+                        onChange={(next) => updatePropertyValue(property.id, next)}
+                        open={customPropertyPickerId === property.id}
+                        onOpenChange={(open) =>
+                          setCustomPropertyPickerId(open ? property.id : null)
+                        }
+                        triggerRender={<PillButton />}
+                        trigger={
+                          <>
+                            <PropertyIcon property={property} className="size-3.5 text-caption" />
+                            <span className="max-w-32 truncate">{property.name}</span>
+                            {value !== undefined && (
+                              <span className="max-w-40 truncate text-muted-foreground">
+                                <CustomPropertyValueDisplay property={property} value={value} />
+                              </span>
+                            )}
+                          </>
+                        }
+                      />
+                    </div>
                   );
                 })}
 
