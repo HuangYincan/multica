@@ -35,7 +35,12 @@
     "supplement_delivered_notice": "Livré ne signifie pas terminé.",
     "supplement_not_delivered": "Non livré · {{reason}}",
     "supplement_failure_turn_ended": "l'exécution s'est terminée avant la livraison",
+    "supplement_failure_turn_not_started": "le tour Codex n'était pas prêt",
+    "supplement_failure_provider_rejected": "Codex a refusé le message",
+    "supplement_failure_timeout": "la livraison a expiré",
     "supplement_failure_unknown": "raison inconnue",
+    "supplement_move_to_new": "Déplacer vers un nouveau message",
+    "supplement_moved": "Déplacé vers la zone de nouveau message.",
     "supplement_retry": "Réessayer",
     "supplement_retry_failed": "Impossible de réessayer la livraison."
   },

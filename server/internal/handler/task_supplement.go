@@ -12,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
-	"github.com/multica-ai/multica/server/pkg/redact"
 )
 
 func (h *Handler) hydrateTaskSupplementMetadata(ctx context.Context, r *http.Request, workspaceID pgtype.UUID, tasks []db.AgentTaskQueue, resp []AgentTaskResponse) {
@@ -147,6 +146,7 @@ func (h *Handler) CreateTaskSupplement(w http.ResponseWriter, r *http.Request) {
 		TaskID: task.ID, WorkspaceID: issue.WorkspaceID, AuthorID: authorID, ClientRequestID: requestID,
 	}
 	if existing, err := h.Queries.GetTaskSupplementByRequest(r.Context(), lookup); err == nil {
+		h.notifyTaskSupplementAvailable(task)
 		h.writeExistingTaskSupplement(w, r, existing, http.StatusOK)
 		return
 	} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -173,6 +173,7 @@ func (h *Handler) CreateTaskSupplement(w http.ResponseWriter, r *http.Request) {
 	})
 	if isUniqueViolation(err) {
 		if existing, loadErr := h.Queries.GetTaskSupplementByRequest(r.Context(), lookup); loadErr == nil {
+			h.notifyTaskSupplementAvailable(task)
 			h.writeExistingTaskSupplement(w, r, existing, http.StatusOK)
 			return
 		}
@@ -204,7 +205,15 @@ func (h *Handler) CreateTaskSupplement(w http.ResponseWriter, r *http.Request) {
 	h.publish(protocol.EventCommentCreated, uuidToString(issue.WorkspaceID), "member", uuidToString(authorID), map[string]any{
 		"comment": resp, "issue_title": issue.Title, "issue_revision": created.IssueRevision,
 	})
+	h.notifyTaskSupplementAvailable(task)
 	writeJSON(w, http.StatusCreated, resp)
+}
+
+func (h *Handler) notifyTaskSupplementAvailable(task db.AgentTaskQueue) {
+	if h.DaemonTaskSupplement == nil || task.Status != "running" || !task.RuntimeID.Valid {
+		return
+	}
+	h.DaemonTaskSupplement.NotifyTaskSupplementAvailable(uuidToString(task.RuntimeID), uuidToString(task.ID))
 }
 
 func (h *Handler) writeExistingTaskSupplement(w http.ResponseWriter, r *http.Request, existing db.GetTaskSupplementByRequestRow, status int) {
@@ -253,6 +262,7 @@ func (h *Handler) RetryTaskSupplement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.publishTaskSupplementUpdate(r, row)
+	h.notifyTaskSupplementAvailable(task)
 	writeJSON(w, http.StatusOK, supplementReceipt(row))
 }
 
@@ -301,14 +311,7 @@ func (h *Handler) AckTaskSupplement(w http.ResponseWriter, r *http.Request) {
 			TaskID: parseUUID(taskID), CommentID: commentID,
 		})
 	} else {
-		reason := strings.TrimSpace(sanitizeNullBytes(req.Error))
-		if reason == "" {
-			reason = "provider_rejected"
-		}
-		if len(reason) > 500 {
-			reason = reason[:500]
-		}
-		reason = redact.Text(reason)
+		reason := stableTaskSupplementFailureReason(req.Error)
 		row, err = h.Queries.AckTaskSupplementFailed(r.Context(), db.AckTaskSupplementFailedParams{
 			TaskID: parseUUID(taskID), CommentID: commentID,
 			FailureReason: pgtype.Text{String: reason, Valid: true},
@@ -324,6 +327,23 @@ func (h *Handler) AckTaskSupplement(w http.ResponseWriter, r *http.Request) {
 	}
 	h.publishTaskSupplementUpdate(r, row)
 	writeJSON(w, http.StatusOK, supplementReceipt(row))
+}
+
+func stableTaskSupplementFailureReason(reason string) string {
+	switch strings.TrimSpace(sanitizeNullBytes(reason)) {
+	case protocol.TaskSupplementFailureTurnNotStarted:
+		return protocol.TaskSupplementFailureTurnNotStarted
+	case protocol.TaskSupplementFailureTimeout:
+		return protocol.TaskSupplementFailureTimeout
+	case protocol.TaskSupplementFailureTurnEnded:
+		return protocol.TaskSupplementFailureTurnEnded
+	case protocol.TaskSupplementFailureProviderRejected:
+		return protocol.TaskSupplementFailureProviderRejected
+	default:
+		// Provider and Go errors are private daemon diagnostics. Never persist or
+		// rebroadcast them to workspace members, and never byte-truncate UTF-8.
+		return protocol.TaskSupplementFailureProviderRejected
+	}
 }
 
 func (h *Handler) publishTaskSupplementUpdate(r *http.Request, row db.TaskSupplement) {

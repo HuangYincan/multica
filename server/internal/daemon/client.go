@@ -434,10 +434,16 @@ func (c *Client) ExtendTaskPrepareLease(ctx context.Context, runtimeID, taskID s
 	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/runtimes/%s/tasks/%s/prepare-lease", runtimeID, taskID), map[string]any{}, nil)
 }
 
-func (c *Client) StartTask(ctx context.Context, taskID string, capabilities ...string) error {
-	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/tasks/%s/start", taskID), map[string]any{
+func (c *Client) StartTask(ctx context.Context, taskID string, capabilities ...string) (bool, error) {
+	var response struct {
+		SupplementCapability string `json:"supplement_capability"`
+	}
+	if err := c.postJSON(ctx, fmt.Sprintf("/api/daemon/tasks/%s/start", taskID), map[string]any{
 		"capabilities": capabilities,
-	}, nil)
+	}, &response); err != nil && !errors.Is(err, io.EOF) {
+		return false, err
+	}
+	return response.SupplementCapability == protocol.DaemonCapabilityTaskSupplementV1, nil
 }
 
 type TaskSupplement struct {

@@ -35,7 +35,12 @@
     "supplement_delivered_notice": "Delivered does not mean completed.",
     "supplement_not_delivered": "Not delivered · {{reason}}",
     "supplement_failure_turn_ended": "the run ended before delivery",
+    "supplement_failure_turn_not_started": "the Codex turn was not ready",
+    "supplement_failure_provider_rejected": "Codex rejected the message",
+    "supplement_failure_timeout": "delivery timed out",
     "supplement_failure_unknown": "unknown reason",
+    "supplement_move_to_new": "Move to new message",
+    "supplement_moved": "Moved to the new message box.",
     "supplement_retry": "Retry",
     "supplement_retry_failed": "Could not retry delivery."
   },

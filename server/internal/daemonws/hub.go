@@ -447,6 +447,13 @@ func (h *Hub) NotifyTaskAvailable(runtimeID, taskID string) {
 	h.notifyTaskAvailable(runtimeID, taskID, "")
 }
 
+// NotifyTaskSupplementAvailable wakes only the daemon that owns runtimeID;
+// the task ID lets that daemon wake the matching in-flight run without polling
+// or disturbing the machine-level new-task claim loop.
+func (h *Hub) NotifyTaskSupplementAvailable(runtimeID, taskID string) {
+	h.notifyTaskSupplementAvailable(runtimeID, taskID, "")
+}
+
 // NotifyRuntimeProfilesChanged asks connected daemons in workspaceID to pull
 // runtime profiles after a create, update, disable, or delete.
 func (h *Hub) NotifyRuntimeProfilesChanged(workspaceID, profileID string) {
@@ -480,6 +487,22 @@ func (h *Hub) notifyTaskAvailable(runtimeID, taskID, eventID string) {
 		return
 	}
 	data, err := taskAvailableFrame(runtimeID, taskID)
+	if err != nil {
+		return
+	}
+	delivered, deduped := h.notifyFrame(runtimeID, data, eventID)
+	if delivered {
+		M.WakeupDeliveredHit.Add(1)
+	} else if !deduped {
+		M.WakeupDeliveredMiss.Add(1)
+	}
+}
+
+func (h *Hub) notifyTaskSupplementAvailable(runtimeID, taskID, eventID string) {
+	if h == nil || runtimeID == "" || taskID == "" {
+		return
+	}
+	data, err := taskSupplementAvailableFrame(runtimeID, taskID)
 	if err != nil {
 		return
 	}
@@ -612,6 +635,19 @@ func (h *Hub) DeliverDaemonRuntime(scopeID string, frame []byte, eventID string)
 		var payload protocol.TaskAvailablePayload
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil || payload.RuntimeID == "" {
 			slog.Debug("daemon websocket relay: invalid task_available payload", "error", err, "scope_id", scopeID, "event_id", eventID)
+			M.WakeupDeliveredMiss.Add(1)
+			return
+		}
+		delivered, deduped := h.notifyFrame(payload.RuntimeID, frame, eventID)
+		if delivered {
+			M.WakeupDeliveredHit.Add(1)
+		} else if !deduped {
+			M.WakeupDeliveredMiss.Add(1)
+		}
+	case protocol.EventDaemonTaskSupplementAvailable:
+		var payload protocol.TaskSupplementAvailablePayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil || payload.RuntimeID == "" || payload.TaskID == "" {
+			slog.Debug("daemon websocket relay: invalid task_supplement_available payload", "error", err, "scope_id", scopeID, "event_id", eventID)
 			M.WakeupDeliveredMiss.Add(1)
 			return
 		}
@@ -761,6 +797,16 @@ func taskAvailableFrame(runtimeID, taskID string) ([]byte, error) {
 	return json.Marshal(protocol.Message{
 		Type: protocol.EventDaemonTaskAvailable,
 		Payload: mustMarshalRaw(protocol.TaskAvailablePayload{
+			RuntimeID: runtimeID,
+			TaskID:    taskID,
+		}),
+	})
+}
+
+func taskSupplementAvailableFrame(runtimeID, taskID string) ([]byte, error) {
+	return json.Marshal(protocol.Message{
+		Type: protocol.EventDaemonTaskSupplementAvailable,
+		Payload: mustMarshalRaw(protocol.TaskSupplementAvailablePayload{
 			RuntimeID: runtimeID,
 			TaskID:    taskID,
 		}),

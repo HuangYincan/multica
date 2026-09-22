@@ -948,6 +948,12 @@ func (b *codexBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		}
 		return session.Supplement(supplementCtx, instruction)
 	}
+	supplementReady := func() bool {
+		sessionMu.RLock()
+		session := currentSession
+		sessionMu.RUnlock()
+		return session != nil && session.SupplementReady != nil && session.SupplementReady()
+	}
 
 	go func() {
 		defer func() {
@@ -1047,7 +1053,7 @@ func (b *codexBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		}
 	}()
 
-	return &Session{Supplement: supplement, Messages: msgCh, Result: resCh}, nil
+	return &Session{Supplement: supplement, SupplementReady: supplementReady, Messages: msgCh, Result: resCh}, nil
 }
 
 func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts ExecOptions, attempt int) (*Session, error) {
@@ -1928,7 +1934,10 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 	supplement := func(supplementCtx context.Context, instruction string) error {
 		return supplementCodexTurn(supplementCtx, c, instruction)
 	}
-	return &Session{Supplement: supplement, Messages: msgCh, Result: resCh}, nil
+	supplementReady := func() bool {
+		return c.getThreadID() != "" && c.activeTurnID() != ""
+	}
+	return &Session{Supplement: supplement, SupplementReady: supplementReady, Messages: msgCh, Result: resCh}, nil
 }
 
 func supplementCodexTurn(ctx context.Context, c *codexClient, instruction string) error {
@@ -2530,9 +2539,6 @@ func (c *codexClient) getThreadID() string {
 }
 
 func (c *codexClient) setActiveTurnID(turnID string) {
-	if turnID == "" {
-		return
-	}
 	c.turnIDMu.Lock()
 	c.turnID = turnID
 	c.turnIDMu.Unlock()
@@ -3478,6 +3484,7 @@ func (c *codexClient) handleRawNotification(method string, params map[string]any
 			return
 		}
 		c.turnCompleted = true
+		c.setActiveTurnID("")
 		aborted := status == "cancelled" || status == "canceled" ||
 			status == "aborted" || status == "interrupted"
 

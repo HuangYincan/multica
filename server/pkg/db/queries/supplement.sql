@@ -13,7 +13,9 @@ WITH candidate AS MATERIALIZED (
     INSERT INTO task_supplement_capability (task_id, workspace_id, issue_id, capability)
     SELECT id, workspace_id, issue_id, 'task-supplement-v1'
     FROM candidate
-    WHERE @enable_task_supplement::boolean AND provider = 'codex'
+    WHERE @enable_task_supplement::boolean
+      AND provider = 'codex'
+      AND issue_id IS NOT NULL
     RETURNING task_id
 )
 UPDATE agent_task_queue t

@@ -34,7 +34,12 @@
     "supplement_delivered_notice": "已送达不等于已完成。",
     "supplement_not_delivered": "未送达 · {{reason}}",
     "supplement_failure_turn_ended": "送达前运行已结束",
+    "supplement_failure_turn_not_started": "Codex 回合尚未就绪",
+    "supplement_failure_provider_rejected": "Codex 拒绝了该消息",
+    "supplement_failure_timeout": "送达超时",
     "supplement_failure_unknown": "原因未知",
+    "supplement_move_to_new": "移到新消息",
+    "supplement_moved": "已移到新消息输入框。",
     "supplement_retry": "重试",
     "supplement_retry_failed": "无法重试送达。"
   },

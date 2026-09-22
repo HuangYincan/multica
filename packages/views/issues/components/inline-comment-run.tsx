@@ -8,6 +8,7 @@ import { useTraceIssueLabels } from "../../common/task-transcript/use-trace-issu
 import { useActorName } from "@multica/core/workspace/hooks";
 import { useTaskMessages } from "@multica/core/chat/queries";
 import { useCancelIssueRun, useCreateTaskSupplement, useRetryIssueRun } from "@multica/core/issues/mutations";
+import { useCommentDraftStore, useTaskSupplementDraftStore } from "@multica/core/issues/stores";
 import { dispatchReasonCode } from "@multica/core/api";
 import type { AgentTask } from "@multica/core/types";
 import { ActorAvatar } from "../../common/actor-avatar";
@@ -53,6 +54,16 @@ export function useInlineCommentRunState() {
 
 export type InlineCommentRunState = ReturnType<typeof useInlineCommentRunState>;
 
+export function PlacedInlineCommentRun({ presentation = "inline", ...props }: Parameters<typeof InlineCommentRun>[0]) {
+  const draft = useTaskSupplementDraftStore((store) => store.drafts[props.run.task.id]);
+  // A live reply normally compacts its run into the comment header. Once the
+  // user opens a task draft, keep the full run mounted at its timeline slot so
+  // reply arrival and supplement-driven re-anchoring cannot discard the text.
+  const inHeader = showCommentRunInHeader(props.run) && !draft?.open;
+  if ((presentation === "header") !== inHeader) return null;
+  return <InlineCommentRun {...props} presentation={presentation} />;
+}
+
 export function InlineCommentRun({ run, className, viewState, showIdentity = false, presentation = "inline" }: {
   run: CommentRun;
   className?: string;
@@ -74,9 +85,7 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
   const [confirmStop, setConfirmStop] = useState(false);
   const [now, setNow] = useState(Date.now);
   const [visibleCount, setVisibleCount] = useState(12);
-  const [supplementOpen, setSupplementOpen] = useState(false);
-  const [supplementContent, setSupplementContent] = useState("");
-  const [supplementRequestId, setSupplementRequestId] = useState<string>();
+  const supplementDraft = useTaskSupplementDraftStore((store) => store.drafts[task.id]);
   const animationVisibility = useRunAnimationVisibility<HTMLDivElement>();
   const cancel = useCancelIssueRun(task.issue_id);
   const retry = useRetryIssueRun(task.issue_id);
@@ -123,25 +132,34 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
   const stopLabel = cancel.isPending || cancel.isSuccess ? t(($) => $.inline_run.stopping) : t(($) => $.inline_run.stop);
   const canSupplement = task.status === "running"
     && task.supplement_capability === "task-supplement-v1"
-    && task.can_supplement === true;
-  const supplementDisabledReason = task.status !== "running"
-    ? t(($) => $.inline_run.supplement_waiting_start)
+    && task.can_supplement === true
+    && !supplementDraft?.ended;
+  const supplementDisabledReason = supplementDraft?.ended
+    ? t(($) => $.inline_run.supplement_ended)
+    : task.status !== "running"
+      ? t(($) => $.inline_run.supplement_waiting_start)
     : task.supplement_capability !== "task-supplement-v1"
       ? t(($) => $.inline_run.supplement_unsupported)
       : !task.can_supplement ? t(($) => $.inline_run.supplement_forbidden) : "";
+  useEffect(() => {
+    if (supplementDraft && task.status !== "running" && !active) {
+      useTaskSupplementDraftStore.getState().markEnded(task.id);
+    }
+  }, [active, supplementDraft, task.id, task.status]);
   const submitSupplement = () => {
-    const content = supplementContent.trim();
+    const content = supplementDraft?.content.trim() ?? "";
     if (!content || !canSupplement || supplement.isPending) return;
-    const clientRequestId = supplementRequestId ?? crypto.randomUUID();
-    setSupplementRequestId(clientRequestId);
+    const clientRequestId = supplementDraft?.clientRequestId ?? crypto.randomUUID();
+    useTaskSupplementDraftStore.getState().setRequestId(task.id, clientRequestId);
     supplement.mutate({ taskId: task.id, content, clientRequestId }, {
       onSuccess: () => {
-        setSupplementContent("");
-        setSupplementRequestId(undefined);
-        setSupplementOpen(false);
+        useTaskSupplementDraftStore.getState().clear(task.id);
       },
       onError: (error) => {
         const code = dispatchReasonCode(error);
+        if (code === "task_supplement_turn_ended") {
+          useTaskSupplementDraftStore.getState().markEnded(task.id);
+        }
         toast.error(code === "task_supplement_turn_ended"
           ? t(($) => $.inline_run.supplement_ended)
           : code === "task_supplement_unsupported"
@@ -168,7 +186,7 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
       <Button type="button" size="sm" variant="ghost" className="text-muted-foreground"
         aria-label={t(($) => $.inline_run.supplement_action)}
         disabled={!canSupplement}
-        onClick={() => setSupplementOpen((open) => !open)}>
+        onClick={() => useTaskSupplementDraftStore.getState().open(task.id, task.issue_id)}>
         <MessageSquarePlus className="size-3.5" />
         <span className="@max-[32rem]/run:sr-only">{t(($) => $.inline_run.supplement_action)}</span>
       </Button>
@@ -230,13 +248,12 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
         </Button>}
       </div>
       <div className={cn(showIdentity && "pl-8")}>
-        {supplementOpen && <div className="mt-2 space-y-2 rounded-md border bg-muted/20 p-2">
-          <Textarea value={supplementContent} autoFocus rows={3}
+        {supplementDraft?.open && <div className="mt-2 space-y-2 rounded-md border bg-muted/20 p-2">
+          <Textarea value={supplementDraft.content} autoFocus rows={3}
             placeholder={t(($) => $.inline_run.supplement_placeholder)}
             disabled={supplement.isPending}
             onChange={(event) => {
-              setSupplementContent(event.target.value);
-              setSupplementRequestId(undefined);
+              useTaskSupplementDraftStore.getState().setContent(task.id, task.issue_id, event.target.value);
             }}
             onKeyDown={(event) => {
               if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
@@ -247,12 +264,22 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
           <div className="flex items-center justify-between gap-2">
             <p className="text-micro text-muted-foreground">{canSupplement
               ? t(($) => $.inline_run.supplement_notice)
-              : task.status !== "running" ? t(($) => $.inline_run.supplement_ended) : supplementDisabledReason}</p>
-            <Button type="button" size="sm" disabled={!supplementContent.trim() || supplement.isPending || !canSupplement}
-              onClick={submitSupplement}>
-              {supplement.isPending ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Send className="size-3.5" />}
-              {t(($) => $.inline_run.supplement_send)}
-            </Button>
+              : supplementDraft.ended || task.status !== "running" ? t(($) => $.inline_run.supplement_ended) : supplementDisabledReason}</p>
+            <div className="flex shrink-0 items-center gap-2">
+              {supplementDraft.ended && supplementDraft.content.trim() && <Button type="button" size="sm" variant="outline"
+                onClick={() => {
+                  useCommentDraftStore.getState().appendToDraftContent(`new:${task.issue_id}`, supplementDraft.content);
+                  useTaskSupplementDraftStore.getState().clear(task.id);
+                  toast.success(t(($) => $.inline_run.supplement_moved));
+                }}>
+                {t(($) => $.inline_run.supplement_move_to_new)}
+              </Button>}
+              <Button type="button" size="sm" disabled={!supplementDraft.content.trim() || supplement.isPending || !canSupplement}
+                onClick={submitSupplement}>
+                {supplement.isPending ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Send className="size-3.5" />}
+                {t(($) => $.inline_run.supplement_send)}
+              </Button>
+            </div>
           </div>
         </div>}
         {output && <div className="mt-2 text-body"><ReadonlyContent content={redactSecrets(output)} /></div>}

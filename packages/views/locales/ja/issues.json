@@ -34,7 +34,12 @@
     "supplement_delivered_notice": "配信済みは完了を意味しません。",
     "supplement_not_delivered": "未配信 · {{reason}}",
     "supplement_failure_turn_ended": "配信前に実行が終了しました",
+    "supplement_failure_turn_not_started": "Codex ターンの準備ができていませんでした",
+    "supplement_failure_provider_rejected": "Codex がメッセージを拒否しました",
+    "supplement_failure_timeout": "配信がタイムアウトしました",
     "supplement_failure_unknown": "原因不明",
+    "supplement_move_to_new": "新しいメッセージへ移動",
+    "supplement_moved": "新しいメッセージ入力欄へ移動しました。",
     "supplement_retry": "再試行",
     "supplement_retry_failed": "配信を再試行できませんでした。"
   },

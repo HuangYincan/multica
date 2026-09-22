@@ -67,6 +67,11 @@ const (
 	// unsupported so mixed server/daemon versions fail closed.
 	DaemonCapabilityTaskSupplementV1 = "task-supplement-v1"
 
+	TaskSupplementFailureTurnNotStarted   = "turn_not_started"
+	TaskSupplementFailureProviderRejected = "provider_rejected"
+	TaskSupplementFailureTimeout          = "timeout"
+	TaskSupplementFailureTurnEnded        = "turn_ended"
+
 	// AppCapabilityChatDraftRestoreV1 is advertised (X-Client-Capabilities) by
 	// app clients that understand the durable draft-restore recovery path:
 	// chat:cancel_finalized as an invalidation hint plus the draft-restores
@@ -132,6 +137,15 @@ type TaskDispatchPayload struct {
 type TaskAvailablePayload struct {
 	RuntimeID string `json:"runtime_id"`
 	TaskID    string `json:"task_id,omitempty"`
+}
+
+// TaskSupplementAvailablePayload is a best-effort wakeup hint for one exact
+// active run. It carries no user content: the daemon still authenticates and
+// claims the durable row through the supplement endpoint. A lost hint costs at
+// most the bounded safety-poll interval.
+type TaskSupplementAvailablePayload struct {
+	RuntimeID string `json:"runtime_id"`
+	TaskID    string `json:"task_id"`
 }
 
 // RuntimeProfilesChangedPayload is sent from server to daemon as a wakeup hint

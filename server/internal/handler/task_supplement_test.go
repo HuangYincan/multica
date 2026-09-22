@@ -3,7 +3,10 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +22,24 @@ type supplementFixture struct {
 	agentID   string
 	issueID   string
 	taskID    string
+}
+
+func TestStableTaskSupplementFailureReason(t *testing.T) {
+	for _, reason := range []string{
+		protocol.TaskSupplementFailureTurnNotStarted,
+		protocol.TaskSupplementFailureProviderRejected,
+		protocol.TaskSupplementFailureTimeout,
+		protocol.TaskSupplementFailureTurnEnded,
+	} {
+		if got := stableTaskSupplementFailureReason(reason); got != reason {
+			t.Fatalf("stableTaskSupplementFailureReason(%q) = %q", reason, got)
+		}
+	}
+	for _, raw := range []string{"", "供应商错误：无法发送", strings.Repeat("界", 600)} {
+		if got := stableTaskSupplementFailureReason(raw); got != protocol.TaskSupplementFailureProviderRejected {
+			t.Fatalf("raw reason %q escaped as %q", raw, got)
+		}
+	}
 }
 
 func newSupplementFixture(t *testing.T, provider, status string, negotiated bool) supplementFixture {
@@ -96,6 +117,67 @@ func TestTaskSupplementNegotiationFailsClosed(t *testing.T) {
 	}
 }
 
+func TestTaskSupplementCapabilityDoesNotBreakNonIssueCodexStarts(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	runtimeID := dbfx.Runtime(t, "supplement-no-issue-codex", testutil.Cols{"provider": "codex"})
+	agentID := dbfx.Agent(t, "Supplement no issue Codex", runtimeID)
+	chatSessionID := dbfx.ChatSession(t, agentID)
+
+	autopilotID := dbfx.Insert(t, "autopilot", testutil.Cols{
+		"workspace_id": testWorkspaceID, "title": "supplement run only", "assignee_id": agentID,
+		"execution_mode": "run_only", "created_by_type": "member", "created_by_id": testUserID,
+	})
+	autopilotRunID := dbfx.Insert(t, "autopilot_run", testutil.Cols{
+		"autopilot_id": autopilotID, "source": "manual", "status": "running",
+	})
+
+	for _, tc := range []struct {
+		name string
+		cols testutil.Cols
+	}{
+		{name: "chat", cols: testutil.Cols{"chat_session_id": chatSessionID}},
+		{name: "quick create", cols: testutil.Cols{"context": testutil.Raw(`'{"type":"quick_create","workspace_id":"` + testWorkspaceID + `","prompt":"create"}'::jsonb`)}},
+		{name: "autopilot run only", cols: testutil.Cols{"autopilot_run_id": autopilotRunID}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cols := testutil.Cols{"runtime_id": runtimeID, "issue_id": nil, "status": "dispatched"}
+			for key, value := range tc.cols {
+				cols[key] = value
+			}
+			taskID := dbfx.Task(t, agentID, cols)
+			started, err := testHandler.TaskService.StartTask(context.Background(), parseUUID(taskID), true)
+			if err != nil {
+				t.Fatalf("StartTask: %v", err)
+			}
+			if started.Status != "running" {
+				t.Fatalf("status = %q, want running", started.Status)
+			}
+			var capabilityRows int
+			dbfx.QueryRow(t, `SELECT count(*) FROM task_supplement_capability WHERE task_id = $1`, taskID).Scan(&capabilityRows)
+			if capabilityRows != 0 {
+				t.Fatalf("capability rows = %d, want 0", capabilityRows)
+			}
+		})
+	}
+}
+
+func TestStartTaskReturnsOnlyCommittedSupplementCapability(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	fixture := newSupplementFixture(t, "codex", "dispatched", false)
+	req := withURLParams(newRequest(http.MethodPost, "/api/daemon/tasks/"+fixture.taskID+"/start", map[string]any{
+		"capabilities": []string{protocol.DaemonCapabilityTaskSupplementV1},
+	}), "taskId", fixture.taskID)
+	var response AgentTaskResponse
+	testutil.Call(t, testHandler.StartTask, req).Want(http.StatusOK).JSON(&response)
+	if response.SupplementCapability != protocol.DaemonCapabilityTaskSupplementV1 {
+		t.Fatalf("supplement_capability = %q", response.SupplementCapability)
+	}
+}
+
 func TestTaskSupplementOrderedReceiptsRetryAndIdempotency(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -160,7 +242,82 @@ func TestTaskSupplementOrderedReceiptsRetryAndIdempotency(t *testing.T) {
 	}
 }
 
+func TestTaskSupplementConcurrentCreationAllocatesOneOrderedSequence(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	fixture := newSupplementFixture(t, "codex", "running", true)
+
+	const additions = 20
+	errs := make(chan error, additions)
+	var wg sync.WaitGroup
+	for i := 0; i < additions; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := testHandler.Queries.CreateTaskSupplement(context.Background(), db.CreateTaskSupplementParams{
+				TaskID:          parseUUID(fixture.taskID),
+				IssueID:         parseUUID(fixture.issueID),
+				WorkspaceID:     parseUUID(testWorkspaceID),
+				AuthorID:        parseUUID(testUserID),
+				Content:         fmt.Sprintf("concurrent addition %02d", i),
+				ClientRequestID: parseUUID(fmt.Sprintf("0199a4e8-22ce-7b01-bba5-%012x", i+1)),
+			})
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent create: %v", err)
+		}
+	}
+
+	var count, distinct int
+	var minOrdinal, maxOrdinal int64
+	dbfx.QueryRow(t, `
+		SELECT count(*), count(DISTINCT ordinal), min(ordinal), max(ordinal)
+		FROM task_supplement WHERE task_id = $1
+	`, fixture.taskID).Scan(&count, &distinct, &minOrdinal, &maxOrdinal)
+	if count != additions || distinct != additions || minOrdinal != 1 || maxOrdinal != additions {
+		t.Fatalf("sequence count=%d distinct=%d range=%d..%d, want %d unique ordinals 1..%d",
+			count, distinct, minOrdinal, maxOrdinal, additions, additions)
+	}
+
+	for wantOrdinal := int64(1); wantOrdinal <= additions; wantOrdinal++ {
+		claimed, err := testHandler.Queries.ClaimNextTaskSupplement(context.Background(), parseUUID(fixture.taskID))
+		if err != nil {
+			t.Fatalf("claim ordinal %d: %v", wantOrdinal, err)
+		}
+		if claimed.Ordinal != wantOrdinal {
+			t.Fatalf("claimed ordinal %d, want %d", claimed.Ordinal, wantOrdinal)
+		}
+		if _, err := testHandler.Queries.AckTaskSupplementDelivered(context.Background(), db.AckTaskSupplementDeliveredParams{
+			TaskID: parseUUID(fixture.taskID), CommentID: claimed.CommentID,
+		}); err != nil {
+			t.Fatalf("ack ordinal %d: %v", wantOrdinal, err)
+		}
+	}
+
+	var taskCount int
+	dbfx.QueryRow(t, `SELECT count(*) FROM agent_task_queue WHERE issue_id = $1`, fixture.issueID).Scan(&taskCount)
+	if taskCount != 1 {
+		t.Fatalf("concurrent additions created %d runs, want one", taskCount)
+	}
+}
+
 func TestTaskSupplementTerminalRaceCreatesNothing(t *testing.T) {
+	for _, status := range []string{"completed", "cancelled"} {
+		t.Run(status, func(t *testing.T) {
+			assertTaskSupplementTerminalRaceCreatesNothing(t, status)
+		})
+	}
+}
+
+func assertTaskSupplementTerminalRaceCreatesNothing(t *testing.T, terminalStatus string) {
+	t.Helper()
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -182,7 +339,7 @@ func TestTaskSupplementTerminalRaceCreatesNothing(t *testing.T) {
 		})
 		result <- createErr
 	}()
-	if _, err := tx.Exec(context.Background(), `UPDATE agent_task_queue SET status = 'completed', completed_at = now() WHERE id = $1`, fixture.taskID); err != nil {
+	if _, err := tx.Exec(context.Background(), `UPDATE agent_task_queue SET status = $2, completed_at = now() WHERE id = $1`, fixture.taskID, terminalStatus); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(context.Background()); err != nil {

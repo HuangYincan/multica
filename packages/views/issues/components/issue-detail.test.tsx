@@ -422,6 +422,29 @@ vi.mock("@multica/core/issues/stores", async () => ({
       }),
     },
   ),
+  useTaskSupplementDraftStore: Object.assign(
+    (selector?: any) => {
+      const state = {
+        drafts: {} as Record<string, never>,
+        open: () => {},
+        setContent: () => {},
+        setRequestId: () => {},
+        markEnded: () => {},
+        clear: () => {},
+      };
+      return selector ? selector(state) : state;
+    },
+    {
+      getState: () => ({
+        drafts: {} as Record<string, never>,
+        open: () => {},
+        setContent: () => {},
+        setRequestId: () => {},
+        markEnded: () => {},
+        clear: () => {},
+      }),
+    },
+  ),
   useCommentComposerStore: Object.assign(
     (selector?: any) => {
       const state = { sticky: true, toggleSticky: () => {} };

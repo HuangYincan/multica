@@ -100,6 +100,43 @@ func TestClient_IdentityHeaders_GetJSON(t *testing.T) {
 	}
 }
 
+func TestStartTaskCapabilityNegotiationMixedVersions(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		response   string
+		negotiated bool
+	}{
+		{name: "old server empty response", response: "", negotiated: false},
+		{name: "old server task response", response: `{"id":"task-1","status":"running"}`, negotiated: false},
+		{name: "new server explicit capability", response: `{"supplement_capability":"task-supplement-v1"}`, negotiated: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body struct {
+					Capabilities []string `json:"capabilities"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Errorf("decode start request: %v", err)
+				}
+				if len(body.Capabilities) != 1 || body.Capabilities[0] != protocol.DaemonCapabilityTaskSupplementV1 {
+					t.Errorf("capabilities = %#v", body.Capabilities)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tc.response))
+			}))
+			defer srv.Close()
+
+			got, err := NewClient(srv.URL).StartTask(context.Background(), "task-1", protocol.DaemonCapabilityTaskSupplementV1)
+			if err != nil {
+				t.Fatalf("StartTask: %v", err)
+			}
+			if got != tc.negotiated {
+				t.Fatalf("negotiated = %v, want %v", got, tc.negotiated)
+			}
+		})
+	}
+}
+
 func TestClient_ResolveRemoteMCPCredentialUsesExplicitDaemonToken(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer mdt_task_broker" {

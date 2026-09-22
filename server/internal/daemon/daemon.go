@@ -667,6 +667,13 @@ type Daemon struct {
 	// taskSlotWait is the brief semaphore wait before the capacity backoff.
 	// New sets the production default; tests shorten it to reach that branch.
 	taskSlotWait time.Duration
+	// taskSupplementSignals carries content-free server hints to the exact
+	// negotiated task. The two intervals are production defaults in New and
+	// independently overridable by focused tests.
+	taskSupplementSignals       *taskSupplementSignals
+	taskSupplementSignalsInitMu sync.Mutex
+	taskSupplementPollInterval  time.Duration
+	taskSupplementReadyInterval time.Duration
 	// envRootBusyWait is how long a task that is entitled to a prior env root
 	// waits for the previous run to let go of it before giving up and preparing
 	// a fresh one. New() sets it; the zero value means "do not wait", which is
@@ -704,42 +711,45 @@ func New(cfg Config, logger *slog.Logger) *Daemon {
 	// server can split logs/metrics by client version (parallel to the CLI).
 	client.SetVersion(cfg.CLIVersion)
 	d := &Daemon{
-		cfg:                       cfg,
-		client:                    client,
-		repoCache:                 repocache.New(cacheRoot, logger),
-		skillCache:                NewSkillBundleCache(skillCacheRoot),
-		logger:                    logger,
-		terminalReports:           newTerminalReportStore(cfg),
-		terminalReportWakeup:      make(chan struct{}, 1),
-		terminalReportNow:         time.Now,
-		terminalReportFlight:      make(map[string]struct{}),
-		workspaces:                make(map[string]*workspaceState),
-		runtimeIndex:              make(map[string]Runtime),
-		profileLaunchSpecs:        make(map[string]profileLaunchSpec),
-		runtimeSet:                newRuntimeSetWatcher(),
-		agentDiscoveryKick:        make(chan struct{}, 1),
-		agentVersions:             make(map[string]string),
-		skippedAgents:             make(map[string]string),
-		resolvedPaths:             make(map[string]healedAgent),
-		wsHBLastAck:               make(map[string]time.Time),
-		activeEnvRoots:            make(map[string]int),
-		deletingEnvRoots:          make(map[string]bool),
-		activeStores:              make(map[string]int),
-		deletingStores:            make(map[string]bool),
-		localPathLocks:            NewLocalPathLocker(),
-		runtimeGoneInflight:       make(map[string]struct{}),
-		pendingWorkInflight:       make(map[string]struct{}),
-		pendingWorkLastRun:        make(map[string]time.Time),
-		reregisterNextAttempt:     make(map[string]time.Time),
-		reregisterLastCompletedAt: make(map[string]time.Time),
-		cancelPollInterval:        5 * time.Second,
-		taskSlotWait:              taskSlotWaitTimeout,
-		envRootBusyWait:           15 * time.Second,
-		taskPrepareTimeout:        defaultTaskPrepareTimeout,
-		prepareLeaseRefresh:       taskPrepareLeaseRefresh,
-		reconcile:                 newReconcileBroadcaster(),
-		workspaceChanges:          newWorkspaceChangeSignal(),
-		wsRPC:                     newWSRPCClient(wsRPCResponseGrace),
+		cfg:                         cfg,
+		client:                      client,
+		repoCache:                   repocache.New(cacheRoot, logger),
+		skillCache:                  NewSkillBundleCache(skillCacheRoot),
+		logger:                      logger,
+		terminalReports:             newTerminalReportStore(cfg),
+		terminalReportWakeup:        make(chan struct{}, 1),
+		terminalReportNow:           time.Now,
+		terminalReportFlight:        make(map[string]struct{}),
+		workspaces:                  make(map[string]*workspaceState),
+		runtimeIndex:                make(map[string]Runtime),
+		profileLaunchSpecs:          make(map[string]profileLaunchSpec),
+		runtimeSet:                  newRuntimeSetWatcher(),
+		agentDiscoveryKick:          make(chan struct{}, 1),
+		agentVersions:               make(map[string]string),
+		skippedAgents:               make(map[string]string),
+		resolvedPaths:               make(map[string]healedAgent),
+		wsHBLastAck:                 make(map[string]time.Time),
+		activeEnvRoots:              make(map[string]int),
+		deletingEnvRoots:            make(map[string]bool),
+		activeStores:                make(map[string]int),
+		deletingStores:              make(map[string]bool),
+		localPathLocks:              NewLocalPathLocker(),
+		runtimeGoneInflight:         make(map[string]struct{}),
+		pendingWorkInflight:         make(map[string]struct{}),
+		pendingWorkLastRun:          make(map[string]time.Time),
+		reregisterNextAttempt:       make(map[string]time.Time),
+		reregisterLastCompletedAt:   make(map[string]time.Time),
+		cancelPollInterval:          5 * time.Second,
+		taskSlotWait:                taskSlotWaitTimeout,
+		taskSupplementSignals:       newTaskSupplementSignals(),
+		taskSupplementPollInterval:  defaultTaskSupplementPollInterval,
+		taskSupplementReadyInterval: defaultTaskSupplementReadyInterval,
+		envRootBusyWait:             15 * time.Second,
+		taskPrepareTimeout:          defaultTaskPrepareTimeout,
+		prepareLeaseRefresh:         taskPrepareLeaseRefresh,
+		reconcile:                   newReconcileBroadcaster(),
+		workspaceChanges:            newWorkspaceChangeSignal(),
+		wsRPC:                       newWSRPCClient(wsRPCResponseGrace),
 	}
 	d.activeEnvRootsCond = sync.NewCond(&d.activeEnvRootsMu)
 	d.activeStoresCond = sync.NewCond(&d.activeStoresMu)
@@ -8372,12 +8382,21 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// "start task failed: <…>" string and the same failure_reason
 	// taxonomy as before — see MUL-2946 for the classifier contract.
 	var taskCapabilities []string
-	if provider == "codex" {
+	if provider == "codex" && task.IssueID != "" {
 		taskCapabilities = append(taskCapabilities, protocol.DaemonCapabilityTaskSupplementV1)
 	}
-	if err := d.client.StartTask(prepareCtx, task.ID, taskCapabilities...); err != nil {
+	taskSupplementNegotiated, err := d.client.StartTask(prepareCtx, task.ID, taskCapabilities...)
+	if err != nil {
 		stopPrepareLease()
 		return TaskResult{}, fmt.Errorf("start task failed: %w", err)
+	}
+	if taskSupplementNegotiated {
+		// Register before provider launch so a hint cannot arrive in the gap
+		// between the committed server transition and turn/started. The row is
+		// durable, so a coalesced hint is sufficient; the five-second fallback
+		// covers a notification sent before this start response arrived.
+		_, unsubscribeSupplements := d.taskSupplementWakeup(task.ID)
+		defer unsubscribeSupplements()
 	}
 	stopPrepareLease()
 	prepareComplete = true
@@ -8740,7 +8759,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// Shared across the resume-retry below so the retry's transcript rows
 	// keep ascending seq values for the same task.
 	var msgSeq atomic.Int32
-	result, tools, err := d.executeAndDrain(ctx, backend, prompt, execOpts, taskLog, task.ID, env.CodexHome, &msgSeq)
+	result, tools, err := d.executeAndDrain(ctx, backend, prompt, execOpts, taskLog, task.ID, env.CodexHome, &msgSeq, taskSupplementNegotiated)
 	if err != nil {
 		return TaskResult{}, err
 	}
@@ -8796,7 +8815,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		}
 		freshPrompt := BuildPrompt(task, provider, promptOptions...)
 
-		retryResult, retryTools, retryErr := d.executeAndDrain(ctx, backend, freshPrompt, execOpts, taskLog, task.ID, env.CodexHome, &msgSeq)
+		retryResult, retryTools, retryErr := d.executeAndDrain(ctx, backend, freshPrompt, execOpts, taskLog, task.ID, env.CodexHome, &msgSeq, taskSupplementNegotiated)
 		if retryErr != nil {
 			taskLog.Error("fresh session also failed to start; keeping the original poisoned result", "error", retryErr)
 		} else if retryResult.Status != "completed" && retryResult.SessionID == "" {
@@ -9268,7 +9287,7 @@ Human message:
 %s`, strconv.Quote(authorName), content)
 }
 
-func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, prompt string, opts agent.ExecOptions, taskLog *slog.Logger, taskID, codexHome string, msgSeq *atomic.Int32) (agent.Result, int32, error) {
+func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, prompt string, opts agent.ExecOptions, taskLog *slog.Logger, taskID, codexHome string, msgSeq *atomic.Int32, taskSupplementNegotiated ...bool) (agent.Result, int32, error) {
 	phaseRecorder := taskPhaseRecorderFromContext(ctx)
 	// Wrap the caller's ctx so the idle watchdog (below) can interrupt both
 	// the agent subprocess (via the ctx passed to backend.Execute) AND the
@@ -9296,50 +9315,20 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 	taskLog.Debug("backend started, draining messages")
 
 	// One goroutine serially claims additions for this exact run and injects
-	// them into the active Codex turn. Polling is deliberately task-scoped: a
-	// new daemon talking to an old server observes one 404 and stops, while an
-	// old daemon never negotiated support when it started the task.
+	// them into the active Codex turn. It exists only when StartTask explicitly
+	// negotiated this task-scoped capability and Codex can prove a turn is
+	// live. A WS hint wakes it immediately; the fallback shares the daemon's
+	// five-second status cadence. New-daemon/old-server observes one 404 and
+	// stops, while old-daemon/new-server never negotiated support.
 	supplementCtx, cancelSupplements := context.WithCancel(agentCtx)
 	supplementsDone := make(chan struct{})
-	if session.Supplement != nil {
+	negotiatedSupplements := len(taskSupplementNegotiated) > 0 && taskSupplementNegotiated[0]
+	if negotiatedSupplements && session.Supplement != nil && session.SupplementReady != nil {
+		wakeup, unsubscribe := d.taskSupplementWakeup(taskID)
 		go func() {
+			defer unsubscribe()
 			defer close(supplementsDone)
-			ticker := time.NewTicker(time.Second)
-			defer ticker.Stop()
-			for {
-				claimCtx, cancel := context.WithTimeout(supplementCtx, 3*time.Second)
-				supplement, claimErr := d.client.ClaimTaskSupplement(claimCtx, taskID)
-				cancel()
-				if claimErr != nil {
-					var reqErr *requestError
-					if errors.As(claimErr, &reqErr) && (reqErr.StatusCode == http.StatusNotFound || reqErr.StatusCode == http.StatusPreconditionFailed) {
-						return
-					}
-					if supplementCtx.Err() != nil {
-						return
-					}
-					taskLog.Debug("additional message claim failed", "error", claimErr)
-				} else if supplement != nil {
-					injectCtx, cancelInject := context.WithTimeout(supplementCtx, 8*time.Second)
-					injectErr := session.Supplement(injectCtx, formatTaskSupplementInstruction(supplement.AuthorName, supplement.Content))
-					cancelInject()
-					errText := ""
-					if injectErr != nil {
-						errText = injectErr.Error()
-					}
-					ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-					ackErr := d.client.AckTaskSupplement(ackCtx, taskID, supplement.CommentID, injectErr == nil, errText)
-					cancelAck()
-					if ackErr != nil {
-						taskLog.Warn("additional message acknowledgement failed", "comment_id", supplement.CommentID, "error", ackErr)
-					}
-				}
-				select {
-				case <-supplementCtx.Done():
-					return
-				case <-ticker.C:
-				}
-			}
+			d.runTaskSupplementLoop(supplementCtx, ctx, session, taskID, wakeup, taskLog)
 		}()
 	} else {
 		close(supplementsDone)

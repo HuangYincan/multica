@@ -48,6 +48,30 @@ func (n *RelayNotifier) NotifyTaskAvailable(runtimeID, taskID string) {
 	M.WakeupPublishedTotal.Add(1)
 }
 
+func (n *RelayNotifier) NotifyTaskSupplementAvailable(runtimeID, taskID string) {
+	if runtimeID == "" || taskID == "" {
+		return
+	}
+	eventID := ulid.Make().String()
+	if n.local != nil {
+		n.local.notifyTaskSupplementAvailable(runtimeID, taskID, eventID)
+	}
+	if n.relay == nil {
+		return
+	}
+	frame, err := taskSupplementAvailableFrame(runtimeID, taskID)
+	if err != nil {
+		M.WakeupPublishErrors.Add(1)
+		return
+	}
+	if err := n.relay.PublishWithID(realtime.ScopeDaemonRuntime, taskID, "", frame, eventID); err != nil {
+		M.WakeupPublishErrors.Add(1)
+		slog.Warn("daemon websocket task supplement wakeup publish failed", "error", err, "runtime_id", runtimeID, "task_id", taskID)
+		return
+	}
+	M.WakeupPublishedTotal.Add(1)
+}
+
 func (n *RelayNotifier) NotifyRuntimeProfilesChanged(workspaceID, profileID string) {
 	if workspaceID == "" {
 		return

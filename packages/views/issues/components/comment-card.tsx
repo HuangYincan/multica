@@ -48,8 +48,8 @@ import { useT } from "../../i18n";
 import { CommentsFoldBar } from "./resolved-thread-bar";
 import { deriveThreadResolution } from "./thread-utils";
 import { RevisionConflictCompare } from "./revision-conflict-compare";
-import { InlineCommentRun, useInlineCommentRunState, type InlineCommentRunState } from "./inline-comment-run";
-import { EMPTY_COMMENT_RUNS, showCommentRunInHeader, type CommentRun } from "./comment-runs";
+import { InlineCommentRun, PlacedInlineCommentRun, useInlineCommentRunState, type InlineCommentRunState } from "./inline-comment-run";
+import { EMPTY_COMMENT_RUNS, type CommentRun } from "./comment-runs";
 import { useCommentAnnotations } from "./use-comment-annotations";
 import { useRunCommentMotion } from "./use-run-comment-motion";
 
@@ -606,12 +606,19 @@ function CommentRevisionConflict({
 // Single comment row (used for both parent and replies within the same Card)
 // ---------------------------------------------------------------------------
 
-function SupplementReceipt({ issueId, entry }: { issueId: string; entry: TimelineEntry }) {
+export function SupplementReceipt({ issueId, entry, taskStatus }: {
+  issueId: string;
+  entry: TimelineEntry;
+  taskStatus?: CommentRun["task"]["status"];
+}) {
   const { t } = useT("issues");
   const locale = useLocale();
   const retry = useRetryTaskSupplement(issueId);
   if (!entry.supplement_task_id || !entry.supplement_status) return null;
-  if (entry.supplement_status === "pending" || entry.supplement_status === "delivering") {
+  const terminal = taskStatus === "completed" || taskStatus === "failed" || taskStatus === "cancelled";
+  const endedBeforeDelivery = terminal
+    && (entry.supplement_status === "pending" || entry.supplement_status === "delivering");
+  if (!endedBeforeDelivery && (entry.supplement_status === "pending" || entry.supplement_status === "delivering")) {
     return <p role="status" className="mt-1.5 text-caption text-muted-foreground">
       {t(($) => $.inline_run.supplement_waiting_delivery)}
     </p>;
@@ -625,13 +632,19 @@ function SupplementReceipt({ issueId, entry }: { issueId: string; entry: Timelin
       <span className="ml-1 text-muted-foreground">{t(($) => $.inline_run.supplement_delivered_notice)}</span>
     </p>;
   }
-  const ended = entry.supplement_failure_reason === "turn_ended";
-  const reason = ended
+  const reasonCode = endedBeforeDelivery ? "turn_ended" : entry.supplement_failure_reason;
+  const reason = reasonCode === "turn_ended"
     ? t(($) => $.inline_run.supplement_failure_turn_ended)
-    : entry.supplement_failure_reason || t(($) => $.inline_run.supplement_failure_unknown);
+    : reasonCode === "turn_not_started"
+      ? t(($) => $.inline_run.supplement_failure_turn_not_started)
+      : reasonCode === "provider_rejected"
+        ? t(($) => $.inline_run.supplement_failure_provider_rejected)
+        : reasonCode === "timeout"
+          ? t(($) => $.inline_run.supplement_failure_timeout)
+          : t(($) => $.inline_run.supplement_failure_unknown);
   return <div role="alert" className="mt-1.5 flex items-center gap-2 text-caption text-destructive">
     <span>{t(($) => $.inline_run.supplement_not_delivered, { reason })}</span>
-    {!ended && <Button type="button" size="xs" variant="outline" disabled={retry.isPending}
+    {!terminal && reasonCode !== "turn_ended" && <Button type="button" size="xs" variant="outline" disabled={retry.isPending}
       onClick={() => retry.mutate({ taskId: entry.supplement_task_id!, commentId: entry.id }, {
         onError: () => toast.error(t(($) => $.inline_run.supplement_retry_failed)),
       })}>
@@ -646,6 +659,7 @@ function CommentRow({
   runMetadata,
   issueId,
   entry,
+  supplementTaskStatus,
   currentUserId,
   canModerate = false,
   isResolution = false,
@@ -662,6 +676,7 @@ function CommentRow({
   runMetadata?: ReactNode;
   issueId: string;
   entry: TimelineEntry;
+  supplementTaskStatus?: CommentRun["task"]["status"];
   currentUserId?: string;
   canModerate?: boolean;
   /** True when this reply is the thread's resolution (shows the green badge). */
@@ -917,7 +932,7 @@ function CommentRow({
           </div>
           <AttachmentList attachments={entry.attachments} content={entry.content} className="mt-1.5 pl-12 pr-4 max-md:pl-3 max-md:pr-3" />
           <div className="pl-12 pr-4 max-md:pl-3 max-md:pr-3">
-            <SupplementReceipt issueId={issueId} entry={entry} />
+            <SupplementReceipt issueId={issueId} entry={entry} taskStatus={supplementTaskStatus} />
           </div>
           {retryableAgentFailureComment(entry) && (
             <TaskCommentRetryButton
@@ -968,10 +983,9 @@ export function AgentRunComment({ run, standalone = false, commentProps, enterin
         <CommentRow {...commentProps}
           isHighlighted={commentProps.highlightedCommentId === reply?.id}
           isResolution={!!reply?.resolved_at}
-          runHeader={showCommentRunInHeader(run)
-            ? <InlineCommentRun run={run} viewState={viewState} presentation="header" /> : undefined}
-          runMetadata={!showCommentRunInHeader(run)
-            ? <InlineCommentRun run={run} viewState={viewState} /> : undefined} />
+          supplementTaskStatus={reply.supplement_task_id === run.task.id ? run.task.status : undefined}
+          runHeader={<PlacedInlineCommentRun run={run} viewState={viewState} presentation="header" />}
+          runMetadata={<PlacedInlineCommentRun run={run} viewState={viewState} />} />
       ) : <div className="px-4 max-md:px-3">
         <InlineCommentRun run={run} viewState={viewState} showIdentity />
       </div>}
@@ -1059,9 +1073,11 @@ function CommentCardImpl({
   const slottedReplyIds = new Set(slottedRuns.flatMap((run) =>
     [run.commentId, ...(runOutputs.get(run.task.id) ?? []).map((reply) => reply.id)]));
   const renderRuns = (commentId: string, presentation: "inline" | "header" = "inline") => runs.filter((run) => run.commentId === commentId && run.hasReply
-    && showCommentRunInHeader(run) === (presentation === "header")
     && (!run.anchorCommentId || run.anchorCommentId === commentId || replyFolded))
-    .map((run) => <InlineCommentRun key={run.task.id} run={run} presentation={presentation} viewState={run.commentId === entry.id ? runViewState : undefined} />);
+    .map((run) => <PlacedInlineCommentRun key={run.task.id} run={run} presentation={presentation} viewState={run.commentId === entry.id ? runViewState : undefined} />);
+  const supplementTaskStatus = (comment: TimelineEntry) => comment.supplement_task_id
+    ? runs.find((run) => run.task.id === comment.supplement_task_id)?.task.status
+    : undefined;
 
   const renderAnchoredRuns = (commentId: string) => runs.filter((run) => run.anchorCommentId === commentId
     && !(replyFolded && run.hasReply))
@@ -1090,6 +1106,7 @@ function CommentCardImpl({
           <CommentRow
             issueId={issueId}
             entry={reply}
+            supplementTaskStatus={supplementTaskStatus(reply)}
             runHeader={renderRuns(reply.id, "header")}
             runMetadata={renderRuns(reply.id)}
             currentUserId={currentUserId}
@@ -1421,6 +1438,9 @@ function CommentCardImpl({
                   <ReadonlyContent content={entry.content ?? ""} attachments={entry.attachments} />
                 </div>
                 <AttachmentList attachments={entry.attachments} content={entry.content} className="mt-1.5 pl-8 max-md:pl-0" />
+                <div className="pl-8 max-md:pl-0">
+                  <SupplementReceipt issueId={issueId} entry={entry} taskStatus={supplementTaskStatus(entry)} />
+                </div>
                 {retryableAgentFailureComment(entry) && (
                   <TaskCommentRetryButton
                     issueId={issueId}
@@ -1472,6 +1492,7 @@ function CommentCardImpl({
                     <CommentRow
                       issueId={issueId}
                       entry={resolutionReply}
+                      supplementTaskStatus={supplementTaskStatus(resolutionReply)}
                       runHeader={renderRuns(resolutionReply.id, "header")}
                       runMetadata={renderRuns(resolutionReply.id)}
                       currentUserId={currentUserId}
