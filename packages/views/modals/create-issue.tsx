@@ -2,7 +2,7 @@
 
 import { issueStatusCategory } from "@multica/core/issues";
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppLink, resolveClickIntent, useNavigation } from "../navigation";
 import {
   AlertTriangle,
@@ -277,6 +277,7 @@ export function ManualCreatePanel({
   const [propertyValues, setPropertyValues] = useState(draft.manual.propertyValues ?? {});
   const [customPropertyPickerId, setCustomPropertyPickerId] = useState<string | null>(null);
   const [propertyErrorId, setPropertyErrorId] = useState<string | null>(null);
+  const [unavailablePropertyRemoved, setUnavailablePropertyRemoved] = useState(false);
   const [projectId, setProjectId] = useState<string | undefined>(() => {
     if (data && "project_id" in data) {
       return (data.project_id as string | null) ?? undefined;
@@ -320,6 +321,7 @@ export function ManualCreatePanel({
   // Fetch parent issue details for the chip (status/identifier/title).
   // List cache usually has it already, so this resolves synchronously.
   const wsId = useWorkspaceId();
+  const queryClient = useQueryClient();
   const { categoryOf: draftStatusCategory, colorOf, iconOf } = useIssueStatuses(wsId);
   const { data: workspaceProperties = [] } = useQuery(propertyListOptions(wsId));
   const { data: parentIssue } = useQuery({
@@ -424,6 +426,7 @@ export function ManualCreatePanel({
     setPropertyValues({});
     setCustomPropertyPickerId(null);
     setPropertyErrorId(null);
+    setUnavailablePropertyRemoved(false);
     setProjectId(undefined);
     setParentIssueId(undefined);
     setStage(null);
@@ -474,6 +477,7 @@ export function ManualCreatePanel({
     uploadGate: gate,
     normalize: () => title.trim(),
     onSubmit: async (): Promise<boolean> => {
+      setUnavailablePropertyRemoved(false);
       // Flush the description editor's pending debounce into the store BEFORE
       // snapshotting, so a late flush of pre-submit typing cannot masquerade
       // as an edit made during the request.
@@ -663,9 +667,38 @@ export function ManualCreatePanel({
           err.body && typeof err.body === "object"
             ? (err.body as { property_id?: unknown }).property_id
             : undefined;
-        if (typeof propertyId === "string") {
-          setPropertyErrorId(propertyId);
-          setCustomPropertyPickerId(propertyId);
+        if (
+          mountedRef.current &&
+          typeof propertyId === "string" &&
+          Object.prototype.hasOwnProperty.call(propertyValues, propertyId)
+        ) {
+          // Read the current catalog, not the submit-time snapshot. An
+          // unloaded catalog is not evidence that a property is unavailable.
+          const availableProperties = queryClient.getQueryData(
+            propertyListOptions(wsId).queryKey,
+          )?.properties;
+          if (availableProperties?.some((property) => property.id === propertyId)) {
+            setPropertyErrorId(propertyId);
+            setCustomPropertyPickerId(propertyId);
+          } else if (availableProperties) {
+            const currentValues = useIssueDraftStore.getState().draft.manual.propertyValues ?? {};
+            if (Object.prototype.hasOwnProperty.call(currentValues, propertyId)) {
+              // Preserve edits made while the request was pending in both the
+              // local selection and the workspace-persisted draft.
+              setPropertyValues((current) => {
+                const next = { ...current };
+                delete next[propertyId];
+                return next;
+              });
+              const next = { ...currentValues };
+              delete next[propertyId];
+              setManual({ propertyValues: next });
+              setPropertyErrorId(null);
+              setCustomPropertyPickerId(null);
+              setUnavailablePropertyRemoved(true);
+              return false;
+            }
+          }
         }
         toast.error(err.message || t(($) => $.create_issue.toast_failed));
         return false;
@@ -1326,6 +1359,12 @@ export function ManualCreatePanel({
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
+
+            {unavailablePropertyRemoved && (
+              <p role="alert" className="px-5 pb-3 text-caption text-destructive">
+                {t(($) => $.create_issue.unavailable_property_removed)}
+              </p>
+            )}
 
             {/* Parent / child pickers — rendered inline so they stack over this
                 modal instead of replacing it via useModalStore. */}
