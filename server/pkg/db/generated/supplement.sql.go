@@ -26,7 +26,7 @@ FROM active_task t
 WHERE s.task_id = t.id
   AND s.comment_id = $1
   AND s.status IN ('delivering', 'delivered')
-RETURNING s.task_id, s.workspace_id, s.issue_id, s.comment_id, s.author_id, s.client_request_id, s.ordinal, s.status, s.failure_reason, s.attempt_count, s.created_at, s.updated_at, s.delivered_at
+RETURNING s.task_id, s.workspace_id, s.issue_id, s.comment_id, s.author_id, s.client_request_id, s.status, s.failure_reason, s.attempt_count, s.created_at, s.updated_at, s.delivered_at
 `
 
 type AckTaskSupplementDeliveredParams struct {
@@ -44,7 +44,6 @@ func (q *Queries) AckTaskSupplementDelivered(ctx context.Context, arg AckTaskSup
 		&i.CommentID,
 		&i.AuthorID,
 		&i.ClientRequestID,
-		&i.Ordinal,
 		&i.Status,
 		&i.FailureReason,
 		&i.AttemptCount,
@@ -63,7 +62,7 @@ SET status = 'failed',
 WHERE task_id = $2
   AND comment_id = $3
   AND status = 'delivering'
-RETURNING task_id, workspace_id, issue_id, comment_id, author_id, client_request_id, ordinal, status, failure_reason, attempt_count, created_at, updated_at, delivered_at
+RETURNING task_id, workspace_id, issue_id, comment_id, author_id, client_request_id, status, failure_reason, attempt_count, created_at, updated_at, delivered_at
 `
 
 type AckTaskSupplementFailedParams struct {
@@ -82,7 +81,6 @@ func (q *Queries) AckTaskSupplementFailed(ctx context.Context, arg AckTaskSupple
 		&i.CommentID,
 		&i.AuthorID,
 		&i.ClientRequestID,
-		&i.Ordinal,
 		&i.Status,
 		&i.FailureReason,
 		&i.AttemptCount,
@@ -103,7 +101,7 @@ WITH next AS MATERIALIZED (
       AND s.status = 'pending'
       AND t.status = 'running'
       AND cap.capability = 'task-supplement-v1'
-    ORDER BY s.ordinal
+    ORDER BY s.created_at, s.comment_id
     FOR UPDATE OF s SKIP LOCKED
     LIMIT 1
 ), claimed AS (
@@ -114,9 +112,9 @@ WITH next AS MATERIALIZED (
         updated_at = now()
     FROM next
     WHERE s.comment_id = next.comment_id
-    RETURNING s.task_id, s.workspace_id, s.issue_id, s.comment_id, s.author_id, s.client_request_id, s.ordinal, s.status, s.failure_reason, s.attempt_count, s.created_at, s.updated_at, s.delivered_at
+    RETURNING s.task_id, s.workspace_id, s.issue_id, s.comment_id, s.author_id, s.client_request_id, s.status, s.failure_reason, s.attempt_count, s.created_at, s.updated_at, s.delivered_at
 )
-SELECT claimed.task_id, claimed.workspace_id, claimed.issue_id, claimed.comment_id, claimed.author_id, claimed.client_request_id, claimed.ordinal, claimed.status, claimed.failure_reason, claimed.attempt_count, claimed.created_at, claimed.updated_at, claimed.delivered_at, c.content,
+SELECT claimed.task_id, claimed.workspace_id, claimed.issue_id, claimed.comment_id, claimed.author_id, claimed.client_request_id, claimed.status, claimed.failure_reason, claimed.attempt_count, claimed.created_at, claimed.updated_at, claimed.delivered_at, c.content,
        COALESCE(NULLIF(btrim(u.name), ''), 'a user')::text AS author_name
 FROM claimed
 JOIN comment c ON c.id = claimed.comment_id
@@ -130,7 +128,6 @@ type ClaimNextTaskSupplementRow struct {
 	CommentID       pgtype.UUID        `json:"comment_id"`
 	AuthorID        pgtype.UUID        `json:"author_id"`
 	ClientRequestID pgtype.UUID        `json:"client_request_id"`
-	Ordinal         int64              `json:"ordinal"`
 	Status          string             `json:"status"`
 	FailureReason   pgtype.Text        `json:"failure_reason"`
 	AttemptCount    int32              `json:"attempt_count"`
@@ -151,7 +148,6 @@ func (q *Queries) ClaimNextTaskSupplement(ctx context.Context, taskID pgtype.UUI
 		&i.CommentID,
 		&i.AuthorID,
 		&i.ClientRequestID,
-		&i.Ordinal,
 		&i.Status,
 		&i.FailureReason,
 		&i.AttemptCount,
@@ -185,12 +181,6 @@ WITH locked_task AS MATERIALIZED (
     FROM locked_task t
     WHERE i.id = t.issue_id AND i.workspace_id = $3
     RETURNING i.id, i.workspace_id, i.revision
-), allocated_ordinal AS (
-    UPDATE task_supplement_capability cap
-    SET next_ordinal = cap.next_ordinal + 1
-    FROM locked_task t
-    WHERE cap.task_id = t.id
-    RETURNING cap.task_id, cap.next_ordinal - 1 AS ordinal
 ), inserted_comment AS (
     INSERT INTO comment (
         issue_id, workspace_id, author_type, author_id, content, type, parent_id
@@ -202,17 +192,15 @@ WITH locked_task AS MATERIALIZED (
 ), inserted_supplement AS (
     INSERT INTO task_supplement (
         task_id, workspace_id, issue_id, comment_id, author_id,
-        client_request_id, ordinal, status
+        client_request_id, status
     )
     SELECT t.id, i.workspace_id, i.id, c.id, $4,
            $6,
-           a.ordinal,
            'pending'
     FROM locked_task t
     JOIN touched_issue i ON i.id = t.issue_id
     JOIN inserted_comment c ON c.issue_id = i.id
-    JOIN allocated_ordinal a ON a.task_id = t.id
-    RETURNING task_id, workspace_id, issue_id, comment_id, author_id, client_request_id, ordinal, status, failure_reason, attempt_count, created_at, updated_at, delivered_at
+    RETURNING task_id, workspace_id, issue_id, comment_id, author_id, client_request_id, status, failure_reason, attempt_count, created_at, updated_at, delivered_at
 )
 SELECT c.id, c.issue_id, c.author_type, c.author_id, c.content, c.type, c.created_at, c.updated_at, c.parent_id, c.workspace_id, c.resolved_at, c.resolved_by_type, c.resolved_by_id, c.source_task_id, c.quick_action_id, c.via_plugin_id, c.revision, c.recovery_settled_at, c.deleted_at, i.revision AS issue_revision,
        s.task_id AS supplement_task_id, s.status AS supplement_status,
@@ -261,8 +249,8 @@ type CreateTaskSupplementRow struct {
 	SupplementClientRequestID pgtype.UUID        `json:"supplement_client_request_id"`
 }
 
-// Locking the exact task serializes terminal transitions and assigns a stable
-// send order. Comment creation, explicit task binding and run coverage then
+// Locking the exact task serializes against terminal transitions.
+// Comment creation, explicit task binding and run coverage then
 // commit as one statement: a terminal-race loser creates nothing.
 func (q *Queries) CreateTaskSupplement(ctx context.Context, arg CreateTaskSupplementParams) (CreateTaskSupplementRow, error) {
 	row := q.db.QueryRow(ctx, createTaskSupplement,
@@ -305,7 +293,7 @@ func (q *Queries) CreateTaskSupplement(ctx context.Context, arg CreateTaskSupple
 }
 
 const getTaskSupplementByComment = `-- name: GetTaskSupplementByComment :one
-SELECT task_id, workspace_id, issue_id, comment_id, author_id, client_request_id, ordinal, status, failure_reason, attempt_count, created_at, updated_at, delivered_at FROM task_supplement
+SELECT task_id, workspace_id, issue_id, comment_id, author_id, client_request_id, status, failure_reason, attempt_count, created_at, updated_at, delivered_at FROM task_supplement
 WHERE comment_id = $1 AND workspace_id = $2
 `
 
@@ -324,7 +312,6 @@ func (q *Queries) GetTaskSupplementByComment(ctx context.Context, arg GetTaskSup
 		&i.CommentID,
 		&i.AuthorID,
 		&i.ClientRequestID,
-		&i.Ordinal,
 		&i.Status,
 		&i.FailureReason,
 		&i.AttemptCount,
@@ -336,7 +323,7 @@ func (q *Queries) GetTaskSupplementByComment(ctx context.Context, arg GetTaskSup
 }
 
 const getTaskSupplementByRequest = `-- name: GetTaskSupplementByRequest :one
-SELECT s.task_id, s.workspace_id, s.issue_id, s.comment_id, s.author_id, s.client_request_id, s.ordinal, s.status, s.failure_reason, s.attempt_count, s.created_at, s.updated_at, s.delivered_at, c.content
+SELECT s.task_id, s.workspace_id, s.issue_id, s.comment_id, s.author_id, s.client_request_id, s.status, s.failure_reason, s.attempt_count, s.created_at, s.updated_at, s.delivered_at, c.content
 FROM task_supplement s
 JOIN comment c ON c.id = s.comment_id
 WHERE s.task_id = $1
@@ -359,7 +346,6 @@ type GetTaskSupplementByRequestRow struct {
 	CommentID       pgtype.UUID        `json:"comment_id"`
 	AuthorID        pgtype.UUID        `json:"author_id"`
 	ClientRequestID pgtype.UUID        `json:"client_request_id"`
-	Ordinal         int64              `json:"ordinal"`
 	Status          string             `json:"status"`
 	FailureReason   pgtype.Text        `json:"failure_reason"`
 	AttemptCount    int32              `json:"attempt_count"`
@@ -384,7 +370,6 @@ func (q *Queries) GetTaskSupplementByRequest(ctx context.Context, arg GetTaskSup
 		&i.CommentID,
 		&i.AuthorID,
 		&i.ClientRequestID,
-		&i.Ordinal,
 		&i.Status,
 		&i.FailureReason,
 		&i.AttemptCount,
@@ -397,7 +382,7 @@ func (q *Queries) GetTaskSupplementByRequest(ctx context.Context, arg GetTaskSup
 }
 
 const getTaskSupplementCapability = `-- name: GetTaskSupplementCapability :one
-SELECT task_id, workspace_id, issue_id, capability, next_ordinal, created_at FROM task_supplement_capability WHERE task_id = $1
+SELECT task_id, workspace_id, issue_id, capability, created_at FROM task_supplement_capability WHERE task_id = $1
 `
 
 func (q *Queries) GetTaskSupplementCapability(ctx context.Context, taskID pgtype.UUID) (TaskSupplementCapability, error) {
@@ -408,7 +393,6 @@ func (q *Queries) GetTaskSupplementCapability(ctx context.Context, taskID pgtype
 		&i.WorkspaceID,
 		&i.IssueID,
 		&i.Capability,
-		&i.NextOrdinal,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -416,7 +400,7 @@ func (q *Queries) GetTaskSupplementCapability(ctx context.Context, taskID pgtype
 
 const listTaskSupplementMetadata = `-- name: ListTaskSupplementMetadata :many
 SELECT cap.task_id, cap.capability,
-       COALESCE(array_agg(s.comment_id ORDER BY s.ordinal)
+       COALESCE(array_agg(s.comment_id ORDER BY s.created_at, s.comment_id)
                 FILTER (WHERE s.comment_id IS NOT NULL), '{}'::uuid[])::uuid[] AS comment_ids
 FROM task_supplement_capability cap
 LEFT JOIN task_supplement s ON s.task_id = cap.task_id
@@ -457,7 +441,7 @@ func (q *Queries) ListTaskSupplementMetadata(ctx context.Context, arg ListTaskSu
 }
 
 const listTaskSupplementsByCommentIDs = `-- name: ListTaskSupplementsByCommentIDs :many
-SELECT task_id, workspace_id, issue_id, comment_id, author_id, client_request_id, ordinal, status, failure_reason, attempt_count, created_at, updated_at, delivered_at FROM task_supplement
+SELECT task_id, workspace_id, issue_id, comment_id, author_id, client_request_id, status, failure_reason, attempt_count, created_at, updated_at, delivered_at FROM task_supplement
 WHERE workspace_id = $1
   AND comment_id = ANY($2::uuid[])
 `
@@ -483,7 +467,6 @@ func (q *Queries) ListTaskSupplementsByCommentIDs(ctx context.Context, arg ListT
 			&i.CommentID,
 			&i.AuthorID,
 			&i.ClientRequestID,
-			&i.Ordinal,
 			&i.Status,
 			&i.FailureReason,
 			&i.AttemptCount,
@@ -523,7 +506,7 @@ WHERE s.task_id = t.id
   AND s.comment_id = $1
   AND s.workspace_id = $2
   AND s.status = 'failed'
-RETURNING s.task_id, s.workspace_id, s.issue_id, s.comment_id, s.author_id, s.client_request_id, s.ordinal, s.status, s.failure_reason, s.attempt_count, s.created_at, s.updated_at, s.delivered_at
+RETURNING s.task_id, s.workspace_id, s.issue_id, s.comment_id, s.author_id, s.client_request_id, s.status, s.failure_reason, s.attempt_count, s.created_at, s.updated_at, s.delivered_at
 `
 
 type RetryTaskSupplementParams struct {
@@ -548,7 +531,6 @@ func (q *Queries) RetryTaskSupplement(ctx context.Context, arg RetryTaskSuppleme
 		&i.CommentID,
 		&i.AuthorID,
 		&i.ClientRequestID,
-		&i.Ordinal,
 		&i.Status,
 		&i.FailureReason,
 		&i.AttemptCount,

@@ -31,8 +31,8 @@ WHERE t.id = candidate.id
 RETURNING t.*;
 
 -- name: CreateTaskSupplement :one
--- Locking the exact task serializes terminal transitions and assigns a stable
--- send order. Comment creation, explicit task binding and run coverage then
+-- Locking the exact task serializes against terminal transitions.
+-- Comment creation, explicit task binding and run coverage then
 -- commit as one statement: a terminal-race loser creates nothing.
 WITH locked_task AS MATERIALIZED (
     SELECT t.id, t.issue_id, t.agent_id, t.trigger_comment_id
@@ -54,12 +54,6 @@ WITH locked_task AS MATERIALIZED (
     FROM locked_task t
     WHERE i.id = t.issue_id AND i.workspace_id = @workspace_id
     RETURNING i.id, i.workspace_id, i.revision
-), allocated_ordinal AS (
-    UPDATE task_supplement_capability cap
-    SET next_ordinal = cap.next_ordinal + 1
-    FROM locked_task t
-    WHERE cap.task_id = t.id
-    RETURNING cap.task_id, cap.next_ordinal - 1 AS ordinal
 ), inserted_comment AS (
     INSERT INTO comment (
         issue_id, workspace_id, author_type, author_id, content, type, parent_id
@@ -71,16 +65,14 @@ WITH locked_task AS MATERIALIZED (
 ), inserted_supplement AS (
     INSERT INTO task_supplement (
         task_id, workspace_id, issue_id, comment_id, author_id,
-        client_request_id, ordinal, status
+        client_request_id, status
     )
     SELECT t.id, i.workspace_id, i.id, c.id, @author_id,
            @client_request_id,
-           a.ordinal,
            'pending'
     FROM locked_task t
     JOIN touched_issue i ON i.id = t.issue_id
     JOIN inserted_comment c ON c.issue_id = i.id
-    JOIN allocated_ordinal a ON a.task_id = t.id
     RETURNING *
 )
 SELECT c.*, i.revision AS issue_revision,
@@ -115,7 +107,7 @@ WHERE workspace_id = @workspace_id
 
 -- name: ListTaskSupplementMetadata :many
 SELECT cap.task_id, cap.capability,
-       COALESCE(array_agg(s.comment_id ORDER BY s.ordinal)
+       COALESCE(array_agg(s.comment_id ORDER BY s.created_at, s.comment_id)
                 FILTER (WHERE s.comment_id IS NOT NULL), '{}'::uuid[])::uuid[] AS comment_ids
 FROM task_supplement_capability cap
 LEFT JOIN task_supplement s ON s.task_id = cap.task_id
@@ -133,7 +125,7 @@ WITH next AS MATERIALIZED (
       AND s.status = 'pending'
       AND t.status = 'running'
       AND cap.capability = 'task-supplement-v1'
-    ORDER BY s.ordinal
+    ORDER BY s.created_at, s.comment_id
     FOR UPDATE OF s SKIP LOCKED
     LIMIT 1
 ), claimed AS (

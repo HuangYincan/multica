@@ -6,7 +6,6 @@ CREATE TABLE task_supplement_capability (
     workspace_id UUID NOT NULL,
     issue_id UUID NOT NULL,
     capability TEXT NOT NULL,
-    next_ordinal BIGINT NOT NULL DEFAULT 1,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -21,7 +20,6 @@ CREATE TABLE task_supplement (
     comment_id UUID NOT NULL,
     author_id UUID NOT NULL,
     client_request_id UUID NOT NULL,
-    ordinal BIGINT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('pending', 'delivering', 'delivered', 'failed')),
     failure_reason TEXT,
     attempt_count INTEGER NOT NULL DEFAULT 0,

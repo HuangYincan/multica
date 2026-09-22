@@ -1435,7 +1435,6 @@ type TaskSupplement struct {
 	CommentID       pgtype.UUID        `json:"comment_id"`
 	AuthorID        pgtype.UUID        `json:"author_id"`
 	ClientRequestID pgtype.UUID        `json:"client_request_id"`
-	Ordinal         int64              `json:"ordinal"`
 	Status          string             `json:"status"`
 	FailureReason   pgtype.Text        `json:"failure_reason"`
 	AttemptCount    int32              `json:"attempt_count"`
@@ -1449,7 +1448,6 @@ type TaskSupplementCapability struct {
 	WorkspaceID pgtype.UUID        `json:"workspace_id"`
 	IssueID     pgtype.UUID        `json:"issue_id"`
 	Capability  string             `json:"capability"`
-	NextOrdinal int64              `json:"next_ordinal"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 

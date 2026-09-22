@@ -44,10 +44,8 @@ func TestTaskSupplementMigrationsUpDownUpInIsolatedSchema(t *testing.T) {
 		"537_task_supplement_request_index",
 		"538_task_supplement_capability_index",
 		"539_task_supplement_comment_index",
-		"540_task_supplement_ordinal_index",
 	}
 	downVersions := []string{
-		"540_task_supplement_ordinal_index",
 		"539_task_supplement_comment_index",
 		"538_task_supplement_capability_index",
 		"537_task_supplement_request_index",
@@ -81,17 +79,37 @@ func TestTaskSupplementMigrationsUpDownUpInIsolatedSchema(t *testing.T) {
 		"task_supplement_task_request_uidx",
 		"task_supplement_capability_task_uidx",
 		"task_supplement_comment_uidx",
-		"task_supplement_task_ordinal_uidx",
 	}).Scan(&validIndexes); err != nil {
 		t.Fatalf("inspect indexes: %v", err)
 	}
-	if validIndexes != 4 {
-		t.Fatalf("valid supplement indexes = %d, want 4", validIndexes)
+	if validIndexes != 3 {
+		t.Fatalf("valid supplement indexes = %d, want 3", validIndexes)
+	}
+	var removedColumns, foreignKeys int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM information_schema.columns
+		WHERE table_schema = $1
+		  AND table_name IN ('task_supplement', 'task_supplement_capability')
+		  AND column_name IN ('ordinal', 'next_ordinal')
+	`, schema).Scan(&removedColumns); err != nil || removedColumns != 0 {
+		t.Fatalf("removed sequence columns = %d: %v", removedColumns, err)
+	}
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace
+		WHERE n.nspname = $1 AND c.contype = 'f'
+	`, schema).Scan(&foreignKeys); err != nil || foreignKeys != 0 {
+		t.Fatalf("foreign keys = %d: %v", foreignKeys, err)
 	}
 
 	const taskID = "0199a4e8-22ce-7b01-bba5-000000000001"
 	if _, err := pool.Exec(ctx, `INSERT INTO agent_task_queue (id, status) VALUES ($1, 'running')`, taskID); err != nil {
 		t.Fatalf("insert running task: %v", err)
+	}
+	// An old server's SELECT * still scans the original task shape while the
+	// new side tables and terminal trigger remain installed.
+	var oldTaskID, oldStatus string
+	if err := pool.QueryRow(ctx, `SELECT * FROM agent_task_queue WHERE id = $1`, taskID).Scan(&oldTaskID, &oldStatus); err != nil || oldTaskID != taskID || oldStatus != "running" {
+		t.Fatalf("old application task scan = %q/%q: %v", oldTaskID, oldStatus, err)
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO task_supplement_capability (task_id, workspace_id, issue_id, capability)
@@ -104,8 +122,8 @@ func TestTaskSupplementMigrationsUpDownUpInIsolatedSchema(t *testing.T) {
 	}
 	if _, err := pool.Exec(ctx, `
 		INSERT INTO task_supplement (
-			task_id, workspace_id, issue_id, comment_id, author_id, client_request_id, ordinal, status
-		) VALUES ($1, $2, $3, $4, $5, $6, 1, 'pending')
+			task_id, workspace_id, issue_id, comment_id, author_id, client_request_id, status
+		) VALUES ($1, $2, $3, $4, $5, $6, 'pending')
 	`, taskID,
 		"0199a4e8-22ce-7b01-bba5-000000000002",
 		"0199a4e8-22ce-7b01-bba5-000000000003",
