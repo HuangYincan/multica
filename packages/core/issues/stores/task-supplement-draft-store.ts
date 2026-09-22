@@ -70,7 +70,13 @@ export const useTaskSupplementDraftStore = create<TaskSupplementDraftStore>()(
       }),
       markEnded: (taskId) => set((state) => {
         const draft = state.drafts[taskId];
-        if (!draft || draft.ended) return state;
+        if (!draft) return state;
+        if (!draft.content.trim()) {
+          const drafts = { ...state.drafts };
+          delete drafts[taskId];
+          return { drafts };
+        }
+        if (draft.ended) return state;
         return { drafts: { ...state.drafts, [taskId]: { ...draft, open: true, ended: true, updatedAt: Date.now() } } };
       }),
       clear: (taskId) => set((state) => {

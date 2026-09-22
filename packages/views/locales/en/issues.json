@@ -40,6 +40,7 @@
     "supplement_failure_timeout": "delivery timed out",
     "supplement_failure_unknown": "unknown reason",
     "supplement_move_to_new": "Move to new message",
+    "supplement_discard": "Discard",
     "supplement_moved": "Moved to the new message box.",
     "supplement_retry": "Retry",
     "supplement_retry_failed": "Could not retry delivery."

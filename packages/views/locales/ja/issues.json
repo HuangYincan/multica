@@ -39,6 +39,7 @@
     "supplement_failure_timeout": "配信がタイムアウトしました",
     "supplement_failure_unknown": "原因不明",
     "supplement_move_to_new": "新しいメッセージへ移動",
+    "supplement_discard": "破棄",
     "supplement_moved": "新しいメッセージ入力欄へ移動しました。",
     "supplement_retry": "再試行",
     "supplement_retry_failed": "配信を再試行できませんでした。"

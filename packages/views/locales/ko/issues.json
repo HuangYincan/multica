@@ -39,6 +39,7 @@
     "supplement_failure_timeout": "전달 시간 초과",
     "supplement_failure_unknown": "알 수 없는 이유",
     "supplement_move_to_new": "새 메시지로 이동",
+    "supplement_discard": "버리기",
     "supplement_moved": "새 메시지 입력란으로 이동했습니다.",
     "supplement_retry": "다시 시도",
     "supplement_retry_failed": "전달을 다시 시도하지 못했습니다."

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { api } from "@multica/core/api";
 import { chatKeys } from "@multica/core/chat/queries";
+import { issueKeys } from "@multica/core/issues/queries";
 import { useCommentDraftStore, useTaskSupplementDraftStore } from "@multica/core/issues/stores";
 import type { AgentTask, TimelineEntry } from "@multica/core/types";
 import type { TaskMessagePayload } from "@multica/core/types/events";
@@ -15,7 +16,7 @@ const dispatchReasonCodeMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@multica/core/api", () => ({ api: {
   getIssue: vi.fn(), listTaskMessages: vi.fn(), cancelTask: vi.fn(), rerunIssue: vi.fn(),
-  createTaskSupplement: vi.fn(), retryTaskSupplement: vi.fn(),
+  createTaskSupplement: vi.fn(), retryTaskSupplement: vi.fn(), listTasksByIssue: vi.fn(),
 }, dispatchReasonCode: dispatchReasonCodeMock }));
 vi.mock("@multica/core/hooks", () => ({ useWorkspaceId: () => "workspace" }));
 vi.mock("@multica/core/workspace/hooks", () => ({ useActorName: () => ({ getActorName: () => "Reviewer" }) }));
@@ -53,6 +54,53 @@ function setup(initialTask: AgentTask, hasReply = false, presentation: "inline" 
 }
 
 describe("InlineCommentRun", () => {
+  it.each(["toggle", "cancel", "escape"])("closes and clears a running draft with %s", (action) => {
+    vi.mocked(api.listTaskMessages).mockResolvedValue([]);
+    setup(task({ supplement_capability: "task-supplement-v1", can_supplement: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Add message" }));
+    const input = screen.getByPlaceholderText("Add guidance for this running turn");
+    fireEvent.change(input, { target: { value: "Discard this draft." } });
+    if (action === "escape") fireEvent.keyDown(input, { key: "Escape" });
+    else fireEvent.click(screen.getByRole("button", { name: action === "toggle" ? "Add message" : "Cancel" }));
+    expect(screen.queryByPlaceholderText("Add guidance for this running turn")).not.toBeInTheDocument();
+    expect(useTaskSupplementDraftStore.getState().drafts[id]).toBeUndefined();
+    expect(api.createTaskSupplement).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Add message" }));
+    expect(screen.getByPlaceholderText("Add guidance for this running turn")).toHaveValue("");
+  });
+
+  it.each(["completed", "cancelled", "failed"] as const)("removes an empty panel when the run becomes %s", (status) => {
+    vi.mocked(api.listTaskMessages).mockResolvedValue([]);
+    const current = task({ supplement_capability: "task-supplement-v1", can_supplement: true });
+    const { rerender } = setup(current);
+    fireEvent.click(screen.getByRole("button", { name: "Add message" }));
+    rerender({ ...current, status });
+    expect(screen.queryByPlaceholderText("Add guidance for this running turn")).not.toBeInTheDocument();
+    expect(useTaskSupplementDraftStore.getState().drafts[id]).toBeUndefined();
+  });
+
+  it.each(["Move to new message", "Discard"])("lets a terminal draft %s and restores the reply header", (action) => {
+    vi.mocked(api.listTaskMessages).mockResolvedValue([]);
+    const current = task({ supplement_capability: "task-supplement-v1", can_supplement: true });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = (status: AgentTask["status"], hasReply: boolean) => <QueryClientProvider client={client}>
+      <PlacedInlineCommentRun run={{ task: { ...current, status }, commentId: "reply", hasReply }} presentation="header" />
+      <PlacedInlineCommentRun run={{ task: { ...current, status }, commentId: "reply", hasReply }} />
+    </QueryClientProvider>;
+    const rendered = renderWithI18n(view("running", false));
+    fireEvent.click(screen.getByRole("button", { name: "Add message" }));
+    fireEvent.change(screen.getByPlaceholderText("Add guidance for this running turn"), { target: { value: "Preserve this only on move." } });
+    rendered.rerender(view("completed", true));
+    expect(screen.getByRole("button", { name: "Move to new message" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: action }));
+    expect(useTaskSupplementDraftStore.getState().drafts[id]).toBeUndefined();
+    expect(useCommentDraftStore.getState().getDraft("new:issue")).toBe(action === "Discard" ? undefined : "Preserve this only on move.");
+    expect(screen.queryByPlaceholderText("Add guidance for this running turn")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open full log" })).toBeInTheDocument();
+    expect(api.createTaskSupplement).not.toHaveBeenCalled();
+  });
+
   it("shows fail-closed additional-message availability and sends to the exact run", async () => {
     vi.mocked(api.listTaskMessages).mockResolvedValue([]);
     const unsupported = setup(task());
@@ -129,38 +177,44 @@ describe("InlineCommentRun", () => {
     expect(useTaskSupplementDraftStore.getState().drafts[id]).toBeUndefined();
   });
 
-  it.each(["completed", "cancelled"] as const)("settles a pending receipt immediately when the run becomes %s", (status) => {
+  it.each(["completed", "cancelled", "failed"] as const)("settles a pending receipt immediately when the run becomes %s", async (status) => {
     const entry = {
       id: "supplement-comment", issue_id: "issue", actor_type: "member", actor_id: "user",
       content: "Create receipt evidence.", type: "comment", created_at: "2026-09-07T00:00:10Z",
       supplement_task_id: id, supplement_status: "pending",
     } as TimelineEntry;
     const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-    const view = (taskStatus: AgentTask["status"]) => <QueryClientProvider client={client}>
-      <SupplementReceipt issueId="issue" entry={entry} taskStatus={taskStatus} />
-    </QueryClientProvider>;
-    const rendered = renderWithI18n(view("running"));
+    client.setQueryData(issueKeys.tasks("issue"), [task()]);
+    renderWithI18n(<QueryClientProvider client={client}>
+      <SupplementReceipt issueId="issue" entry={entry} />
+    </QueryClientProvider>);
     expect(screen.getByRole("status")).toHaveTextContent("Waiting for delivery");
-    rendered.rerender(view(status));
-    expect(screen.getByRole("alert")).toHaveTextContent("Not delivered · the run ended before delivery");
+    act(() => client.setQueryData(issueKeys.tasks("issue"), [task({ status })]));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Not delivered · the run ended before delivery"));
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
   });
 
   it("localizes a stable injection failure and retries the same bound comment", async () => {
     vi.mocked(api.retryTaskSupplement).mockResolvedValue();
+    vi.mocked(api.listTasksByIssue).mockResolvedValue([task()]);
     const entry = {
       id: "supplement-comment", issue_id: "issue", actor_type: "member", actor_id: "user",
       content: "Create receipt evidence.", type: "comment", created_at: "2026-09-07T00:00:10Z",
       supplement_task_id: id, supplement_status: "failed", supplement_failure_reason: "provider_rejected",
     } as TimelineEntry;
     const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    client.setQueryData(issueKeys.tasks("issue"), [task()]);
     renderWithI18n(<QueryClientProvider client={client}>
-      <SupplementReceipt issueId="issue" entry={entry} taskStatus="running" />
+      <SupplementReceipt issueId="issue" entry={entry} />
     </QueryClientProvider>);
 
     expect(screen.getByRole("alert")).toHaveTextContent("Not delivered · Codex rejected the message");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(api.retryTaskSupplement).toHaveBeenCalledWith("issue", id, "supplement-comment"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Retry" })).not.toBeDisabled());
+    act(() => client.setQueryData(issueKeys.tasks("issue"), [task({ status: "completed" })]));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("Not delivered · Codex rejected the message");
   });
 
   it("previews streamed agent messages in collapsed steps and expands the full body", async () => {

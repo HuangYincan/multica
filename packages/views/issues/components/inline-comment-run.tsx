@@ -146,6 +146,9 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
       useTaskSupplementDraftStore.getState().markEnded(task.id);
     }
   }, [active, supplementDraft, task.id, task.status]);
+  const closeSupplement = () => {
+    if (!supplement.isPending) useTaskSupplementDraftStore.getState().clear(task.id);
+  };
   const submitSupplement = () => {
     const content = supplementDraft?.content.trim() ?? "";
     if (!content || !canSupplement || supplement.isPending) return;
@@ -185,8 +188,9 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
     <TooltipTrigger render={<span className="inline-flex">
       <Button type="button" size="sm" variant="ghost" className="text-muted-foreground"
         aria-label={t(($) => $.inline_run.supplement_action)}
-        disabled={!canSupplement}
-        onClick={() => useTaskSupplementDraftStore.getState().open(task.id, task.issue_id)}>
+        aria-expanded={!!supplementDraft?.open}
+        disabled={supplement.isPending || (!supplementDraft?.open && !canSupplement)}
+        onClick={() => supplementDraft?.open ? closeSupplement() : useTaskSupplementDraftStore.getState().open(task.id, task.issue_id)}>
         <MessageSquarePlus className="size-3.5" />
         <span className="@max-[32rem]/run:sr-only">{t(($) => $.inline_run.supplement_action)}</span>
       </Button>
@@ -248,7 +252,14 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
         </Button>}
       </div>
       <div className={cn(showIdentity && "pl-8")}>
-        {supplementDraft?.open && <div className="mt-2 space-y-2 rounded-md border bg-muted/20 p-2">
+        {supplementDraft?.open && <div className="mt-2 space-y-2 rounded-md border bg-muted/20 p-2"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              closeSupplement();
+            }
+          }}>
           <Textarea value={supplementDraft.content} autoFocus rows={3}
             placeholder={t(($) => $.inline_run.supplement_placeholder)}
             disabled={supplement.isPending}
@@ -266,7 +277,11 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
               ? t(($) => $.inline_run.supplement_notice)
               : supplementDraft.ended || task.status !== "running" ? t(($) => $.inline_run.supplement_ended) : supplementDisabledReason}</p>
             <div className="flex shrink-0 items-center gap-2">
+              <Button type="button" size="sm" variant="outline" disabled={supplement.isPending} onClick={closeSupplement}>
+                {supplementDraft.ended ? t(($) => $.inline_run.supplement_discard) : t(($) => $.comment.cancel_action)}
+              </Button>
               {supplementDraft.ended && supplementDraft.content.trim() && <Button type="button" size="sm" variant="outline"
+                disabled={supplement.isPending}
                 onClick={() => {
                   useCommentDraftStore.getState().appendToDraftContent(`new:${task.issue_id}`, supplementDraft.content);
                   useTaskSupplementDraftStore.getState().clear(task.id);
@@ -274,11 +289,11 @@ export function InlineCommentRun({ run, className, viewState, showIdentity = fal
                 }}>
                 {t(($) => $.inline_run.supplement_move_to_new)}
               </Button>}
-              <Button type="button" size="sm" disabled={!supplementDraft.content.trim() || supplement.isPending || !canSupplement}
+              {!supplementDraft.ended && <Button type="button" size="sm" disabled={!supplementDraft.content.trim() || supplement.isPending || !canSupplement}
                 onClick={submitSupplement}>
                 {supplement.isPending ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" /> : <Send className="size-3.5" />}
                 {t(($) => $.inline_run.supplement_send)}
-              </Button>
+              </Button>}
             </div>
           </div>
         </div>}

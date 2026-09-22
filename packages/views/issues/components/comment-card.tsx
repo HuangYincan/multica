@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, ChevronRight, ListChevronsDownUp, Copy, Link2, Loader2, MessageSquarePlus, MoreHorizontal, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@multica/ui/components/ui/card";
@@ -41,6 +42,7 @@ import type { TimelineEntry, Attachment } from "@multica/core/types";
 import { contentReferencesAttachment } from "@multica/core/types";
 import { isDeletedComment } from "@multica/core/issues/comment-deletion";
 import { useRetryTaskSupplement } from "@multica/core/issues/mutations";
+import { issueTasksOptions } from "@multica/core/issues/queries";
 import { useConfigStore } from "@multica/core/config";
 import { selectStandaloneAttachments } from "@multica/core/attachments/image-sequence";
 import { useCommentCollapseStore, useCommentDraftStore } from "@multica/core/issues/stores";
@@ -606,14 +608,20 @@ function CommentRevisionConflict({
 // Single comment row (used for both parent and replies within the same Card)
 // ---------------------------------------------------------------------------
 
-export function SupplementReceipt({ issueId, entry, taskStatus }: {
+export function SupplementReceipt({ issueId, entry }: {
   issueId: string;
   entry: TimelineEntry;
-  taskStatus?: CommentRun["task"]["status"];
 }) {
   const { t } = useT("issues");
   const locale = useLocale();
   const retry = useRetryTaskSupplement(issueId);
+  // Run placement belongs to one card, but every bound supplement must observe
+  // the task's terminal state, including earlier top-level comments.
+  const { data: taskStatus } = useQuery({
+    ...issueTasksOptions(issueId),
+    enabled: !!issueId && !!entry.supplement_task_id && !!entry.supplement_status,
+    select: (tasks) => tasks.find((task) => task.id === entry.supplement_task_id)?.status,
+  });
   if (!entry.supplement_task_id || !entry.supplement_status) return null;
   const terminal = taskStatus === "completed" || taskStatus === "failed" || taskStatus === "cancelled";
   const endedBeforeDelivery = terminal
@@ -659,7 +667,6 @@ function CommentRow({
   runMetadata,
   issueId,
   entry,
-  supplementTaskStatus,
   currentUserId,
   canModerate = false,
   isResolution = false,
@@ -676,7 +683,6 @@ function CommentRow({
   runMetadata?: ReactNode;
   issueId: string;
   entry: TimelineEntry;
-  supplementTaskStatus?: CommentRun["task"]["status"];
   currentUserId?: string;
   canModerate?: boolean;
   /** True when this reply is the thread's resolution (shows the green badge). */
@@ -932,7 +938,7 @@ function CommentRow({
           </div>
           <AttachmentList attachments={entry.attachments} content={entry.content} className="mt-1.5 pl-12 pr-4 max-md:pl-3 max-md:pr-3" />
           <div className="pl-12 pr-4 max-md:pl-3 max-md:pr-3">
-            <SupplementReceipt issueId={issueId} entry={entry} taskStatus={supplementTaskStatus} />
+            <SupplementReceipt issueId={issueId} entry={entry} />
           </div>
           {retryableAgentFailureComment(entry) && (
             <TaskCommentRetryButton
@@ -983,7 +989,6 @@ export function AgentRunComment({ run, standalone = false, commentProps, enterin
         <CommentRow {...commentProps}
           isHighlighted={commentProps.highlightedCommentId === reply?.id}
           isResolution={!!reply?.resolved_at}
-          supplementTaskStatus={reply.supplement_task_id === run.task.id ? run.task.status : undefined}
           runHeader={<PlacedInlineCommentRun run={run} viewState={viewState} presentation="header" />}
           runMetadata={<PlacedInlineCommentRun run={run} viewState={viewState} />} />
       ) : <div className="px-4 max-md:px-3">
@@ -1075,9 +1080,6 @@ function CommentCardImpl({
   const renderRuns = (commentId: string, presentation: "inline" | "header" = "inline") => runs.filter((run) => run.commentId === commentId && run.hasReply
     && (!run.anchorCommentId || run.anchorCommentId === commentId || replyFolded))
     .map((run) => <PlacedInlineCommentRun key={run.task.id} run={run} presentation={presentation} viewState={run.commentId === entry.id ? runViewState : undefined} />);
-  const supplementTaskStatus = (comment: TimelineEntry) => comment.supplement_task_id
-    ? runs.find((run) => run.task.id === comment.supplement_task_id)?.task.status
-    : undefined;
 
   const renderAnchoredRuns = (commentId: string) => runs.filter((run) => run.anchorCommentId === commentId
     && !(replyFolded && run.hasReply))
@@ -1106,7 +1108,6 @@ function CommentCardImpl({
           <CommentRow
             issueId={issueId}
             entry={reply}
-            supplementTaskStatus={supplementTaskStatus(reply)}
             runHeader={renderRuns(reply.id, "header")}
             runMetadata={renderRuns(reply.id)}
             currentUserId={currentUserId}
@@ -1439,7 +1440,7 @@ function CommentCardImpl({
                 </div>
                 <AttachmentList attachments={entry.attachments} content={entry.content} className="mt-1.5 pl-8 max-md:pl-0" />
                 <div className="pl-8 max-md:pl-0">
-                  <SupplementReceipt issueId={issueId} entry={entry} taskStatus={supplementTaskStatus(entry)} />
+                  <SupplementReceipt issueId={issueId} entry={entry} />
                 </div>
                 {retryableAgentFailureComment(entry) && (
                   <TaskCommentRetryButton
@@ -1492,7 +1493,6 @@ function CommentCardImpl({
                     <CommentRow
                       issueId={issueId}
                       entry={resolutionReply}
-                      supplementTaskStatus={supplementTaskStatus(resolutionReply)}
                       runHeader={renderRuns(resolutionReply.id, "header")}
                       runMetadata={renderRuns(resolutionReply.id)}
                       currentUserId={currentUserId}

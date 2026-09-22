@@ -1225,6 +1225,43 @@ describe("IssueDetail (shared)", () => {
 
   // Mapping edge cases live in comment-runs.test.ts; this verifies the shipped
   // IssueDetail -> CommentCard -> metadata card wiring as server caches change.
+  it.each((["completed", "cancelled", "failed"] as const).flatMap((status) => [
+    { status, withTrigger: false }, { status, withTrigger: true },
+  ]))("settles every supplement when its run becomes $status (trigger: $withTrigger)", async ({ status, withTrigger }) => {
+    const taskId = "4a2e8d1c-7f9b-4e2a-9c1d-123456789abc";
+    const task: AgentTask = {
+      id: taskId, agent_id: "agent-1", runtime_id: "runtime-1", issue_id: "issue-1",
+      status: "running", priority: 0, created_at: "2026-01-16T00:00:00Z",
+      started_at: "2026-01-16T00:00:00Z", dispatched_at: null, completed_at: null, result: null, error: null,
+      trigger_comment_id: withTrigger ? "comment-1" : undefined,
+    };
+    const supplements: TimelineEntry[] = (withTrigger ? ["pending"] : ["pending", "delivering"]).map((supplementStatus, index) => ({
+      ...mockTimeline[0]!, id: `supplement-${index}`, parent_id: withTrigger ? "comment-1" : null,
+      content: `Additional instruction ${index}`, supplement_task_id: taskId,
+      supplement_status: supplementStatus as "pending" | "delivering",
+      created_at: `2026-01-16T00:00:0${index + 1}Z`,
+    }));
+    const timeline = withTrigger ? [mockTimeline[0]!, ...supplements] : supplements;
+    mockApiObj.listTasksByIssue.mockResolvedValue([task]);
+    mockApiObj.listTimeline.mockResolvedValue(timeline);
+    const queryClient = createTestQueryClient();
+    render(<I18nProvider locale="en" resources={TEST_RESOURCES}>
+      <QueryClientProvider client={queryClient}>
+        <IssueDetail issueId="issue-1" />
+      </QueryClientProvider>
+    </I18nProvider>);
+    await waitFor(() => expect(screen.getAllByText("Waiting for delivery")).toHaveLength(supplements.length));
+
+    const terminalTask = { ...task, status };
+    mockApiObj.listTasksByIssue.mockResolvedValue([terminalTask]);
+    act(() => queryClient.setQueryData(issueKeys.tasks("issue-1"), [terminalTask]));
+    await waitFor(() => expect(screen.getAllByText("Not delivered · the run ended before delivery")).toHaveLength(supplements.length));
+    expect(screen.queryByText("Waiting for delivery")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+    // No receipt update/refetch is needed: the comments are still pending/delivering.
+    expect(queryClient.getQueryData(issueKeys.timeline("issue-1"))).toEqual(timeline);
+  });
+
   it("keeps execution in an agent block before and after its persisted reply arrives", async () => {
     const taskId = "4a2e8d1c-7f9b-4e2a-9c1d-123456789abc";
     const task: AgentTask = {

@@ -5,6 +5,22 @@ import { useTaskSupplementDraftStore } from "./task-supplement-draft-store";
 describe("task supplement draft store", () => {
   beforeEach(() => useTaskSupplementDraftStore.setState({ drafts: {} }));
 
+  it.each(["", " \n "])("clears an empty terminal draft (%j)", (content) => {
+    const store = useTaskSupplementDraftStore.getState();
+    store.setContent("task-1", "issue-1", content);
+    store.markEnded("task-1");
+    expect(useTaskSupplementDraftStore.getState().drafts["task-1"]).toBeUndefined();
+  });
+
+  it("clears a previously ended draft after its text is erased", () => {
+    const store = useTaskSupplementDraftStore.getState();
+    store.setContent("task-1", "issue-1", "retained");
+    store.markEnded("task-1");
+    store.setContent("task-1", "issue-1", "");
+    store.markEnded("task-1");
+    expect(useTaskSupplementDraftStore.getState().drafts["task-1"]).toBeUndefined();
+  });
+
   it("keeps text, request identity, and terminal recovery state by task id", () => {
     const store = useTaskSupplementDraftStore.getState();
     store.open("task-1", "issue-1");

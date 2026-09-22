@@ -40,6 +40,7 @@
     "supplement_failure_timeout": "la livraison a expiré",
     "supplement_failure_unknown": "raison inconnue",
     "supplement_move_to_new": "Déplacer vers un nouveau message",
+    "supplement_discard": "Abandonner",
     "supplement_moved": "Déplacé vers la zone de nouveau message.",
     "supplement_retry": "Réessayer",
     "supplement_retry_failed": "Impossible de réessayer la livraison."
