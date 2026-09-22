@@ -320,15 +320,17 @@ type codexFirstItemWaitObservation struct {
 	mu         sync.Mutex
 	startedAt  time.Time
 	finishedAt time.Time
+	turnID     string
 	outcome    string
 	stderr     codexStderrClassification
 }
 
-func (o *codexFirstItemWaitObservation) start(now time.Time) {
+func (o *codexFirstItemWaitObservation) start(now time.Time, turnID string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.startedAt.IsZero() {
 		o.startedAt = now
+		o.turnID = turnID
 	}
 }
 
@@ -343,13 +345,13 @@ func (o *codexFirstItemWaitObservation) finish(now time.Time, outcome string, st
 	o.stderr = stderr
 }
 
-func (o *codexFirstItemWaitObservation) snapshot() (time.Duration, string, codexStderrClassification, bool) {
+func (o *codexFirstItemWaitObservation) snapshot() (time.Duration, string, string, codexStderrClassification, bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.startedAt.IsZero() || o.finishedAt.IsZero() || o.outcome == "" {
-		return 0, "", codexStderrClassification{}, false
+		return 0, "", "", codexStderrClassification{}, false
 	}
-	return o.finishedAt.Sub(o.startedAt), o.outcome, o.stderr, true
+	return o.finishedAt.Sub(o.startedAt), o.turnID, o.outcome, o.stderr, true
 }
 
 // codexBackend implements Backend by spawning `codex app-server --listen stdio://`
@@ -1234,11 +1236,12 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 	// race between the lifecycle goroutine writing and the reader reading.
 	turnDone := make(chan bool, 1) // true = aborted
 
+	var c *codexClient
 	observeMessage := func(msg Message) {
 		logCodexAgentMessage(b.cfg.Logger, msg)
 		activity := describeCodexSemanticActivity(msg)
 		if activity == "status:running" {
-			firstItemWait.start(time.Now())
+			firstItemWait.start(time.Now(), c.activeTurnID())
 		}
 		trySendString(semanticActivityCh, activity)
 		if activity != "" {
@@ -1246,7 +1249,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		}
 	}
 
-	c := &codexClient{
+	c = &codexClient{
 		cfg:                    b.cfg,
 		stdin:                  stdin,
 		pending:                make(map[int]*pendingRPC),
@@ -1723,7 +1726,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 				resetTimer(semanticTimer, semanticInactivityTimeout)
 				if activity == "status:running" && !firstTurnStarted {
 					firstTurnStarted = true
-					firstItemWait.start(time.Now())
+					firstItemWait.start(time.Now(), c.activeTurnID())
 					firstTurnNoProgressTimer = time.NewTimer(firstTurnNoProgressTimeout)
 					firstTurnNoProgressTimerC = firstTurnNoProgressTimer.C
 				} else if firstTurnStarted && !firstTurnProgressObserved && isCodexFirstTurnProgressActivity(activity) {
@@ -1840,7 +1843,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			)
 		}
 
-		if waitLatency, outcome, classification, ok := firstItemWait.snapshot(); ok {
+		if waitLatency, firstTurnID, outcome, classification, ok := firstItemWait.snapshot(); ok {
 			if waitLatency < 0 {
 				waitLatency = 0
 			}
@@ -1861,7 +1864,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 				"active_launches", activeLaunches,
 				"method", "turn/start",
 				"thread_id", threadID,
-				"turn_id", c.activeTurnID(),
+				"turn_id", firstTurnID,
 				"outcome", outcome,
 				"latency", waitLatency.Round(time.Millisecond).String(),
 				"latency_ms", waitLatency.Milliseconds(),

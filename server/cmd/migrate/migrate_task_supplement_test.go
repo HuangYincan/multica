@@ -40,18 +40,18 @@ func TestTaskSupplementMigrationsUpDownUpInIsolatedSchema(t *testing.T) {
 	}
 
 	upVersions := []string{
-		"535_task_supplement",
-		"536_task_supplement_request_index",
-		"537_task_supplement_capability_index",
-		"538_task_supplement_comment_index",
-		"539_task_supplement_ordinal_index",
+		"536_task_supplement",
+		"537_task_supplement_request_index",
+		"538_task_supplement_capability_index",
+		"539_task_supplement_comment_index",
+		"540_task_supplement_ordinal_index",
 	}
 	downVersions := []string{
-		"539_task_supplement_ordinal_index",
-		"538_task_supplement_comment_index",
-		"537_task_supplement_capability_index",
-		"536_task_supplement_request_index",
-		"535_task_supplement",
+		"540_task_supplement_ordinal_index",
+		"539_task_supplement_comment_index",
+		"538_task_supplement_capability_index",
+		"537_task_supplement_request_index",
+		"536_task_supplement",
 	}
 	run := func(direction string, versions []string) {
 		t.Helper()

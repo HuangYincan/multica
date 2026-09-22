@@ -1935,14 +1935,17 @@ func TestCodexTurnNotificationGateIgnoresSubagentTurnStarted(t *testing.T) {
 
 	c.handleLine(`{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"thr_main","turn":{"id":"turn-main"}}}`)
 	c.handleLine(`{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"thr_subagent","turn":{"id":"turn-sub"}}}`)
+	if turnID := c.activeTurnID(); turnID != "turn-main" {
+		t.Fatalf("subagent turn/started replaced client turnID: got %q", turnID)
+	}
 	c.handleLine(`{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thr_main","turnId":"turn-main","item":{"type":"agentMessage","id":"msg-main","text":"Main answer"}}}`)
 	c.handleLine(`{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thr_main","turn":{"id":"turn-main","status":"completed"}}}`)
 
 	if gate.turnID != "turn-main" {
 		t.Fatalf("subagent turn/started replaced gate turnID: got %q", gate.turnID)
 	}
-	if turnID := c.activeTurnID(); turnID != "turn-main" {
-		t.Fatalf("subagent turn/started replaced client turnID: got %q", turnID)
+	if turnID := c.activeTurnID(); turnID != "" {
+		t.Fatalf("completed main turn remained supplement-ready: active turn ID %q", turnID)
 	}
 	if gotText != "Main answer" {
 		t.Fatalf("main turn text was lost after subagent start: got %q", gotText)
