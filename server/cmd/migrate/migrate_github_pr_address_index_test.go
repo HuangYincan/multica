@@ -89,7 +89,7 @@ func TestGitHubPRAddressIndexMigrationUpDownUp(t *testing.T) {
 		t.Fatalf("before SHA plan does not use head_sha index: %s", headSHABefore)
 	}
 
-	const version = "533_github_pr_address_index"
+	const version = "535_github_pr_address_index"
 	options := runOptions{
 		Direction:             "up",
 		Files:                 realMigrationFiles(t, []string{version}, "up"),
