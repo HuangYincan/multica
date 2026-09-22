@@ -178,36 +178,44 @@
 }
 
 /* Border beam: a brand-tinted highlight sweeps continuously around the
- * element's rounded border, drawing the eye to a CTA that would otherwise
- * blend into the chrome (e.g. the "switch to agent" affordance in manual
- * create). Built with a conic-gradient on a ::before whose mask carves out a
- * 1px ring; an animated @property angle drives the rotation so only the
- * gradient repaints, not layout. The ring respects `border-radius: inherit`,
- * so any rounded host picks up the right curvature for free. Pair with a
- * subtle background tint on the host so the highlight has something to ride
- * on at low contrast. */
-@property --border-beam-angle {
-  syntax: "<angle>";
-  initial-value: 0deg;
-  inherits: false;
-}
-
+ * host's rounded border, drawing the eye to a CTA that would otherwise blend
+ * into the chrome (e.g. the "switch to agent" affordance in manual create).
+ * Rendered by <BorderBeam /> inside a positioned host. The ring is a static
+ * mask that carves a 1px band out of the host's border box and inherits its
+ * radius; inside it, a square conic gradient rotates via transform. Rotating
+ * the gradient about the host's center looks the same as sweeping its start
+ * angle, but the compositor can run it without repainting the ring every
+ * frame. Pair with a subtle background tint on the host so the highlight has
+ * something to ride on at low contrast. */
 @keyframes border-beam-rotate {
-  to { --border-beam-angle: 360deg; }
+  from { transform: translate(-50%, -50%) rotate(0turn); }
+  to { transform: translate(-50%, -50%) rotate(1turn); }
 }
 
-.border-beam {
-  position: relative;
-}
-
-.border-beam::before {
-  content: "";
+.border-beam-ring {
   position: absolute;
   inset: 0;
   border-radius: inherit;
   padding: 1px;
+  overflow: hidden;
+  pointer-events: none;
+  container-type: size;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+}
+
+.border-beam-light {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  /* Width + height is at least the diagonal, so the square covers the ring at
+   * every angle. */
+  width: calc(100cqw + 100cqh);
+  aspect-ratio: 1;
   background: conic-gradient(
-    from var(--border-beam-angle),
     transparent 0deg,
     transparent 220deg,
     #ffbe7b 245deg,
@@ -217,18 +225,11 @@
     #5b9dff 345deg,
     transparent 360deg
   );
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-          mask-composite: exclude;
   animation: border-beam-rotate 3.2s linear infinite;
-  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .border-beam::before {
-    animation: none;
+  .border-beam-ring {
     background: linear-gradient(
       90deg,
       #ffbe7b,
@@ -237,6 +238,10 @@
       #a07cfe,
       #5b9dff
     );
+  }
+
+  .border-beam-light {
+    display: none;
   }
 }
 
