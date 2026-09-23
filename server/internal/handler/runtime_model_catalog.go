@@ -2,8 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
-	"strings"
 	"sync"
 	"time"
 )
@@ -62,9 +60,8 @@ const (
 
 // ModelCatalogSnapshot is the last known good model list for one runtime.
 type ModelCatalogSnapshot struct {
-	RuntimeID      string       `json:"runtime_id"`
-	RuntimeVersion string       `json:"runtime_version,omitempty"`
-	Models         []ModelEntry `json:"models"`
+	RuntimeID string       `json:"runtime_id"`
+	Models    []ModelEntry `json:"models"`
 	// UnavailableModels rides along so a cache hit renders the same picker as
 	// the live round trip. Without it the greyed-out "needs a newer CLI" rows
 	// would blink out for 24h the moment the first snapshot was stored.
@@ -89,26 +86,10 @@ func (s *ModelCatalogSnapshot) Age(now time.Time) time.Duration {
 // Implementations must be safe for concurrent use.
 type ModelCatalogCache interface {
 	Get(ctx context.Context, runtimeID string) (*ModelCatalogSnapshot, error)
-	Put(ctx context.Context, runtimeID string, models []ModelEntry, unavailable []UnavailableModelEntry, supported bool, runtimeVersion string) error
+	Put(ctx context.Context, runtimeID string, models []ModelEntry, unavailable []UnavailableModelEntry, supported bool) error
 	// Invalidate drops any snapshot for the runtime. Used when the cached
 	// catalog can no longer be trusted (e.g. the runtime row was deleted).
 	Invalidate(ctx context.Context, runtimeID string) error
-}
-
-// readRuntimeAgentVersion returns the provider CLI version recorded during
-// daemon registration. It is distinct from metadata.cli_version, which is the
-// Multica daemon version rather than the Claude/Codex binary version.
-func readRuntimeAgentVersion(metadata []byte) string {
-	if len(metadata) == 0 {
-		return ""
-	}
-	var payload struct {
-		Version string `json:"version"`
-	}
-	if err := json.Unmarshal(metadata, &payload); err != nil {
-		return ""
-	}
-	return strings.TrimSpace(payload.Version)
 }
 
 // cacheableModelCatalog reports whether a completed discovery result is worth
@@ -234,7 +215,7 @@ func (c *InMemoryModelCatalogCache) Get(_ context.Context, runtimeID string) (*M
 	return &snapshot, nil
 }
 
-func (c *InMemoryModelCatalogCache) Put(_ context.Context, runtimeID string, models []ModelEntry, unavailable []UnavailableModelEntry, supported bool, runtimeVersion string) error {
+func (c *InMemoryModelCatalogCache) Put(_ context.Context, runtimeID string, models []ModelEntry, unavailable []UnavailableModelEntry, supported bool) error {
 	// fallback=false: ReportModelListResult refuses to Put a fallback catalog
 	// at all, so anything reaching a cache backend is a real discovery result.
 	if runtimeID == "" || !cacheableModelCatalog(models, supported, false) {
@@ -254,7 +235,6 @@ func (c *InMemoryModelCatalogCache) Put(_ context.Context, runtimeID string, mod
 
 	c.entries[runtimeID] = ModelCatalogSnapshot{
 		RuntimeID:         runtimeID,
-		RuntimeVersion:    runtimeVersion,
 		Models:            cloneModelEntries(models),
 		UnavailableModels: cloneUnavailableModelEntries(unavailable),
 		Supported:         supported,

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 	"sync"
@@ -749,6 +750,9 @@ func ValidateThinkingLevelWith(loadCatalog func() (Catalog, error), providerType
 		}
 		return false, nil
 	}
+	if missingFromFallbackCatalog(catalog, providerType, model) {
+		return false, fmt.Errorf("model %q absent from fallback %s catalog; cannot validate thinking level", model, providerType)
+	}
 	return false, nil
 }
 
@@ -816,6 +820,9 @@ func ValidateServiceTierWith(loadCatalog func() (Catalog, error), providerType, 
 	if err != nil {
 		return false, err
 	}
+	if missingFromFallbackCatalog(catalog, providerType, model) {
+		return false, fmt.Errorf("model %q absent from fallback %s catalog; cannot validate service tier", model, providerType)
+	}
 	if value == codexStandardServiceTier {
 		for _, candidate := range catalog.Models {
 			if candidate.SupportsExplicitStandardServiceTier {
@@ -836,6 +843,22 @@ func ValidateServiceTierWith(loadCatalog func() (Catalog, error), providerType, 
 		return false, nil
 	}
 	return false, nil
+}
+
+// Codex fallback is useful for known models, but its omissions are not
+// evidence that a live-only model lacks a capability. The daemon passes validation
+// errors through to the CLI rather than discarding a saved user override.
+func missingFromFallbackCatalog(catalog Catalog, providerType, model string) bool {
+	if providerType != "codex" || !catalog.Fallback || model == "" {
+		return false
+	}
+	target := modelIDForCapabilityLookup(providerType, model)
+	for _, candidate := range catalog.Models {
+		if modelIDForCapabilityLookup(providerType, candidate.ID) == target {
+			return false
+		}
+	}
+	return true
 }
 
 func anyModelSupportsThinkingValue(models []Model, value string) bool {

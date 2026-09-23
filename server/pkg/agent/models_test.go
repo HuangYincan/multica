@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -574,47 +573,6 @@ func TestModelKnownIncompatibleWithProvider(t *testing.T) {
 				t.Fatalf("ModelKnownIncompatibleWithProvider(%q, %q) = %v, want %v", tc.provider, tc.model, got, tc.want)
 			}
 		})
-	}
-}
-
-func TestListModelsCodexCacheTracksCLIVersion(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("shell-script fake binary requires a POSIX shell")
-	}
-
-	dir := t.TempDir()
-	versionFile := filepath.Join(dir, "version.txt")
-	fake := filepath.Join(dir, "codex")
-	script := `#!/bin/sh
-version=$(cat "` + versionFile + `")
-if [ "$1" = "--version" ]; then
-  echo "codex-cli $version"
-  exit 0
-fi
-echo "{\"models\":[{\"slug\":\"model-$version\",\"display_name\":\"Model $version\",\"visibility\":\"list\"}]}"
-`
-	writeTestExecutable(t, fake, []byte(script))
-	if err := os.WriteFile(versionFile, []byte("0.144.1"), 0o600); err != nil {
-		t.Fatalf("write version: %v", err)
-	}
-
-	first, err := ListModels(context.Background(), "codex", Command{Path: fake})
-	if err != nil {
-		t.Fatalf("first ListModels: %v", err)
-	}
-	if len(first.Models) != 1 || first.Models[0].ID != "model-0.144.1" {
-		t.Fatalf("first catalog = %+v", first.Models)
-	}
-
-	if err := os.WriteFile(versionFile, []byte("0.155.1"), 0o600); err != nil {
-		t.Fatalf("upgrade version: %v", err)
-	}
-	second, err := ListModels(context.Background(), "codex", Command{Path: fake})
-	if err != nil {
-		t.Fatalf("second ListModels: %v", err)
-	}
-	if len(second.Models) != 1 || second.Models[0].ID != "model-0.155.1" {
-		t.Fatalf("catalog after CLI upgrade = %+v", second.Models)
 	}
 }
 

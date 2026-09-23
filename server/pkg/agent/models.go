@@ -184,11 +184,11 @@ func ListModels(ctx context.Context, providerType string, runtimeCmd Command) (C
 	}
 	switch providerType {
 	case "claude":
-		return cachedDiscovery(versionedDiscoveryCacheKey(ctx, providerType, runtimeCmd), func() (Catalog, error) {
+		return cachedDiscovery(discoveryCacheKey(providerType, runtimeCmd), func() (Catalog, error) {
 			return discoverClaudeCatalog(ctx, runtimeCmd), nil
 		})
 	case "codex":
-		return cachedDiscovery(versionedDiscoveryCacheKey(ctx, providerType, runtimeCmd), func() (Catalog, error) {
+		return cachedDiscovery(discoveryCacheKey(providerType, runtimeCmd), func() (Catalog, error) {
 			return discoverCodexCatalog(ctx, runtimeCmd), nil
 		})
 	case "antigravity":
@@ -572,18 +572,6 @@ func discoveryCacheKey(providerType string, runtimeCmd Command) string {
 		return providerType
 	}
 	return providerType + ":" + runtimeCmd.cacheKey()
-}
-
-func versionedDiscoveryCacheKey(ctx context.Context, providerType string, runtimeCmd Command) string {
-	base := discoveryCacheKey(providerType, runtimeCmd)
-	if runtimeCmd.Path == "" {
-		runtimeCmd.Path = providerType
-	}
-	version, err := DetectVersion(ctx, runtimeCmd)
-	if err != nil || strings.TrimSpace(version) == "" {
-		return base
-	}
-	return base + ":" + strings.TrimSpace(version)
 }
 
 // ── Static catalogs ──

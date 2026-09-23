@@ -354,10 +354,9 @@ func (h *Handler) InitiateListModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resolvedRuntimeID := uuidToString(rt.ID)
-	runtimeVersion := readRuntimeAgentVersion(rt.Metadata)
 
 	if r.URL.Query().Get("force") != "true" {
-		if cached := h.cachedModelCatalog(r.Context(), resolvedRuntimeID, runtimeVersion); cached != nil {
+		if cached := h.cachedModelCatalog(r.Context(), resolvedRuntimeID); cached != nil {
 			age := cached.Age(time.Now())
 			if age >= modelCatalogRevalidateAfter {
 				h.revalidateModelCatalog(r.Context(), resolvedRuntimeID)
@@ -394,7 +393,7 @@ func (h *Handler) InitiateListModels(w http.ResponseWriter, r *http.Request) {
 // cachedModelCatalog returns a usable cached catalog, or nil when the cache is
 // absent, cold, or unreadable. Cache problems must never fail the request — the
 // caller just falls back to the daemon round trip.
-func (h *Handler) cachedModelCatalog(ctx context.Context, runtimeID, runtimeVersion string) *ModelCatalogSnapshot {
+func (h *Handler) cachedModelCatalog(ctx context.Context, runtimeID string) *ModelCatalogSnapshot {
 	if h.ModelCatalogCache == nil {
 		return nil
 	}
@@ -406,9 +405,6 @@ func (h *Handler) cachedModelCatalog(ctx context.Context, runtimeID, runtimeVers
 	// fallback=false: a stored snapshot is by construction a real discovery
 	// result — fallback catalogs never enter the cache.
 	if snapshot == nil || !cacheableModelCatalog(snapshot.Models, snapshot.Supported, false) {
-		return nil
-	}
-	if runtimeVersion != "" && snapshot.RuntimeVersion != runtimeVersion {
 		return nil
 	}
 	return snapshot
@@ -486,11 +482,9 @@ func (h *Handler) GetModelListRequest(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ReportModelListResult(w http.ResponseWriter, r *http.Request) {
 	runtimeID := chi.URLParam(r, "runtimeId")
 
-	runtime, ok := h.requireDaemonRuntimeAccess(w, r, runtimeID)
-	if !ok {
+	if _, ok := h.requireDaemonRuntimeAccess(w, r, runtimeID); !ok {
 		return
 	}
-	runtimeVersion := readRuntimeAgentVersion(runtime.Metadata)
 
 	requestID := chi.URLParam(r, "requestId")
 
@@ -565,7 +559,7 @@ func (h *Handler) ReportModelListResult(w http.ResponseWriter, r *http.Request) 
 		if h.ModelCatalogCache != nil {
 			switch modelCatalogCacheDecision(body.Models, supported, body.Fallback) {
 			case modelCatalogCacheStore:
-				if err := h.ModelCatalogCache.Put(r.Context(), runtimeID, body.Models, body.UnavailableModels, supported, runtimeVersion); err != nil {
+				if err := h.ModelCatalogCache.Put(r.Context(), runtimeID, body.Models, body.UnavailableModels, supported); err != nil {
 					slog.Warn("model catalog cache write failed", "error", err, "runtime_id", runtimeID)
 				}
 			case modelCatalogCacheDrop:

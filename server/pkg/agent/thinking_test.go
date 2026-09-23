@@ -473,6 +473,45 @@ func TestValidateThinkingLevelCodexPerModelFallbackCatalog(t *testing.T) {
 	}
 }
 
+// A fallback is not an allow-list for live-only models. Unknown models on an
+// authoritative catalog still fail closed, and known fallback models still
+// have their capabilities checked instead of being passed through.
+func TestValidateCodexCapabilitiesMissingFromFallback(t *testing.T) {
+	fallback := Catalog{Models: []Model{{ID: "gpt-5.5"}}, Fallback: true}
+	for _, tc := range []struct {
+		name     string
+		validate func(func() (Catalog, error), string, string, string) (bool, error)
+		value    string
+	}{
+		{"thinking", ValidateThinkingLevelWith, "high"},
+		{"service tier", ValidateServiceTierWith, "priority"},
+		{"standard service tier", ValidateServiceTierWith, "default"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			load := func() (Catalog, error) { return fallback, nil }
+			if valid, err := tc.validate(load, "codex", "gpt-6-sol", tc.value); valid || err == nil {
+				t.Fatalf("missing live-only model: got (%v, %v), want validation error", valid, err)
+			}
+			if valid, err := tc.validate(load, "codex", "gpt-5.5", tc.value); valid || err != nil {
+				t.Fatalf("known fallback model with unsupported value: got (%v, %v), want (false, nil)", valid, err)
+			}
+			fallback.Fallback = false
+			if valid, err := tc.validate(load, "codex", "gpt-6-sol", tc.value); valid || err != nil {
+				t.Fatalf("authoritative catalog omits model: got (%v, %v), want (false, nil)", valid, err)
+			}
+			fallback.Fallback = true
+		})
+	}
+
+	load := func() (Catalog, error) { t.Fatal("empty model must not read catalog"); return Catalog{}, nil }
+	if valid, err := ValidateThinkingLevelWith(load, "codex", "", "high"); valid || err != nil {
+		t.Fatalf("empty model thinking = (%v, %v), want (false, nil)", valid, err)
+	}
+	if valid, err := ValidateServiceTierWith(load, "codex", "", "priority"); valid || err != nil {
+		t.Fatalf("empty model tier = (%v, %v), want (false, nil)", valid, err)
+	}
+}
+
 // TestParseCodexModelCatalog_PreservesFutureEfforts pins the dynamic-catalog
 // contract: a future Codex effort should reach the picker without a Multica
 // code update, pass the server's safe-token gate, and remain scoped to the

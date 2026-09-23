@@ -4,6 +4,10 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"testing"
 
@@ -212,5 +216,41 @@ func TestResolveTaskModelSelectionFailsOpenOnDiscoveryError(t *testing.T) {
 	defer mu.Unlock()
 	if calls != 1 {
 		t.Errorf("catalog reads = %d, want 1 — a failed read must not be retried within the task", calls)
+	}
+}
+
+// Exercise real discovery through the daemon's task-launch guard rather than
+// injecting a prebuilt fallback: live discovery fails, bundled succeeds but
+// lacks the user's live-only model, and neither override may be discarded.
+func TestResolveTaskModelSelectionKeepsLiveOnlyCodexOverridesOnFallback(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script fake binary requires a POSIX shell")
+	}
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "calls")
+	binary := filepath.Join(dir, "codex")
+	script := "#!/bin/sh\n" +
+		"printf '%s\\n' \"$*\" >> '" + logFile + "'\n" +
+		"if [ \"$1\" = \"--version\" ]; then echo 'codex-cli 0.155.1'; exit 0; fi\n" +
+		"if [ \"$3\" = \"--bundled\" ]; then echo '{\"models\":[{\"slug\":\"gpt-5.5\",\"display_name\":\"GPT-5.5\",\"visibility\":\"list\"}]}'; exit 0; fi\n" +
+		"exit 1\n"
+	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	in := taskModelSelection{Model: "gpt-6-sol", ThinkingLevel: "high", ServiceTier: "priority"}
+	got := resolveTaskModelSelection(context.Background(), "codex", agent.Command{Path: binary}, in, quietTaskLog())
+	if got != in {
+		t.Fatalf("launch selection = %+v, want saved selection %+v", got, in)
+	}
+	calls, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(calls), "debug models\n") || !strings.Contains(string(calls), "debug models --bundled\n") {
+		t.Fatalf("expected failed live discovery and successful bundled fallback, got %q", calls)
+	}
+	if strings.Count(string(calls), "debug models --bundled\n") != 1 {
+		t.Fatalf("task capability checks must share a single fallback discovery: %q", calls)
 	}
 }
