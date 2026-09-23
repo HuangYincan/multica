@@ -820,9 +820,10 @@ func ValidateServiceTierWith(loadCatalog func() (Catalog, error), providerType, 
 	if err != nil {
 		return false, err
 	}
-	if missingFromFallbackCatalog(catalog, providerType, model) {
-		return false, fmt.Errorf("model %q absent from fallback %s catalog; cannot validate service tier", model, providerType)
-	}
+	// Explicit standard routing is a CLI-version capability, not a per-model
+	// capability. Resolve it before the fallback missing-model check: an old
+	// CLI must never pass "default" through just because its fallback omits
+	// the saved (live-only) model.
 	if value == codexStandardServiceTier {
 		for _, candidate := range catalog.Models {
 			if candidate.SupportsExplicitStandardServiceTier {
@@ -830,6 +831,9 @@ func ValidateServiceTierWith(loadCatalog func() (Catalog, error), providerType, 
 			}
 		}
 		return false, nil
+	}
+	if missingFromFallbackCatalog(catalog, providerType, model) {
+		return false, fmt.Errorf("model %q absent from fallback %s catalog; cannot validate service tier", model, providerType)
 	}
 	for _, m := range catalog.Models {
 		if m.ID != model {

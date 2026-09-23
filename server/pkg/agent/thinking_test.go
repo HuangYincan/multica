@@ -485,7 +485,6 @@ func TestValidateCodexCapabilitiesMissingFromFallback(t *testing.T) {
 	}{
 		{"thinking", ValidateThinkingLevelWith, "high"},
 		{"service tier", ValidateServiceTierWith, "priority"},
-		{"standard service tier", ValidateServiceTierWith, "default"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			load := func() (Catalog, error) { return fallback, nil }
@@ -509,6 +508,27 @@ func TestValidateCodexCapabilitiesMissingFromFallback(t *testing.T) {
 	}
 	if valid, err := ValidateServiceTierWith(load, "codex", "", "priority"); valid || err != nil {
 		t.Fatalf("empty model tier = (%v, %v), want (false, nil)", valid, err)
+	}
+}
+
+func TestValidateServiceTierStandardUsesCLICapabilityOnFallback(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		supported bool
+	}{
+		{"before 0.133", false},
+		{"0.133 and later", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			catalog := Catalog{Models: []Model{{ID: "gpt-5.5", SupportsExplicitStandardServiceTier: tc.supported}}, Fallback: true}
+			load := func() (Catalog, error) { return catalog, nil }
+			for _, model := range []string{"gpt-5.5", "gpt-6-sol"} {
+				got, err := ValidateServiceTierWith(load, "codex", model, "default")
+				if err != nil || got != tc.supported {
+					t.Errorf("model %q on fallback (supported=%v): got (%v, %v), want (%v, nil)", model, tc.supported, got, err, tc.supported)
+				}
+			}
+		})
 	}
 }
 
