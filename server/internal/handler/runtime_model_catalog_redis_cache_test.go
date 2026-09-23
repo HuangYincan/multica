@@ -21,7 +21,7 @@ func TestRedisModelCatalogCache_RoundTrip(t *testing.T) {
 		t.Fatalf("cold cache should miss: got=%+v err=%v", got, err)
 	}
 
-	if err := cache.Put(ctx, "runtime-1", sampleCatalog(), nil, true); err != nil {
+	if err := cache.Put(ctx, "runtime-1", sampleCatalog(), nil, true, "2.1.280"); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 
@@ -37,6 +37,9 @@ func TestRedisModelCatalogCache_RoundTrip(t *testing.T) {
 	}
 	if !got.Models[0].Default {
 		t.Error("the default badge must survive the Redis round trip")
+	}
+	if got.RuntimeVersion != "2.1.280" {
+		t.Fatalf("runtime version = %q, want 2.1.280", got.RuntimeVersion)
 	}
 	if got.StoredAt.IsZero() {
 		t.Error("StoredAt must be persisted — the serve/revalidate windows depend on it")
@@ -58,14 +61,14 @@ func TestRedisModelCatalogCache_SkipsUncacheableResults(t *testing.T) {
 	ctx := context.Background()
 	cache := NewRedisModelCatalogCache(rdb)
 
-	if err := cache.Put(ctx, "runtime-empty", nil, nil, true); err != nil {
+	if err := cache.Put(ctx, "runtime-empty", nil, nil, true, ""); err != nil {
 		t.Fatalf("put empty: %v", err)
 	}
 	if got, _ := cache.Get(ctx, "runtime-empty"); got != nil {
 		t.Fatalf("empty catalog must not be cached: %+v", got)
 	}
 
-	if err := cache.Put(ctx, "runtime-unsupported", sampleCatalog(), nil, false); err != nil {
+	if err := cache.Put(ctx, "runtime-unsupported", sampleCatalog(), nil, false, ""); err != nil {
 		t.Fatalf("put unsupported: %v", err)
 	}
 	if got, _ := cache.Get(ctx, "runtime-unsupported"); got != nil {
@@ -78,7 +81,7 @@ func TestRedisModelCatalogCache_InvalidateAndExpiry(t *testing.T) {
 	ctx := context.Background()
 	cache := NewRedisModelCatalogCache(rdb)
 
-	if err := cache.Put(ctx, "runtime-1", sampleCatalog(), nil, true); err != nil {
+	if err := cache.Put(ctx, "runtime-1", sampleCatalog(), nil, true, ""); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 	if err := cache.Invalidate(ctx, "runtime-1"); err != nil {
@@ -90,7 +93,7 @@ func TestRedisModelCatalogCache_InvalidateAndExpiry(t *testing.T) {
 
 	// The key must carry a TTL so a runtime that never comes back cannot pin a
 	// snapshot in Redis forever.
-	if err := cache.Put(ctx, "runtime-1", sampleCatalog(), nil, true); err != nil {
+	if err := cache.Put(ctx, "runtime-1", sampleCatalog(), nil, true, ""); err != nil {
 		t.Fatalf("re-put: %v", err)
 	}
 	ttl, err := rdb.TTL(ctx, modelCatalogKey("runtime-1")).Result()

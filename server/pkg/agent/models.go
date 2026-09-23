@@ -184,12 +184,12 @@ func ListModels(ctx context.Context, providerType string, runtimeCmd Command) (C
 	}
 	switch providerType {
 	case "claude":
-		return cachedDiscovery(discoveryCacheKey(providerType, runtimeCmd), func() (Catalog, error) {
+		return cachedDiscovery(versionedDiscoveryCacheKey(ctx, providerType, runtimeCmd), func() (Catalog, error) {
 			return discoverClaudeCatalog(ctx, runtimeCmd), nil
 		})
 	case "codex":
-		return cachedDiscovery(discoveryCacheKey(providerType, runtimeCmd), func() (Catalog, error) {
-			return discovered(discoverCodexModels(ctx, runtimeCmd), nil)
+		return cachedDiscovery(versionedDiscoveryCacheKey(ctx, providerType, runtimeCmd), func() (Catalog, error) {
+			return discoverCodexCatalog(ctx, runtimeCmd), nil
 		})
 	case "antigravity":
 		// agy 1.0.6 added a `--model` flag plus an `agy models` catalog
@@ -426,11 +426,12 @@ func ModelSelectionSupported(providerType string) bool {
 }
 
 // ModelKnownIncompatibleWithProvider reports whether a saved model is a known
-// mismatch for a target runtime provider. For first-party providers with
-// maintained static catalogs, compatibility is exact: the model must be one of
-// the IDs that runtime advertises. Unknown/custom model strings still return
-// false because the UI and CLI allow manual entries and the server should not
-// erase values it cannot confidently classify.
+// mismatch for a target runtime provider. Static catalogs are sufficient to
+// recognize known-good IDs, but they are not allow-lists: Claude and Codex can
+// gain same-family model IDs through live discovery without a Multica release.
+// Unknown/custom model strings still return false because the UI and CLI allow
+// manual entries and the server should not erase values it cannot confidently
+// classify.
 func ModelKnownIncompatibleWithProvider(providerType, model string) bool {
 	model = strings.TrimSpace(model)
 	if model == "" {
@@ -443,6 +444,17 @@ func ModelKnownIncompatibleWithProvider(providerType, model string) bool {
 	}
 	if accepted[modelIDForCapabilityLookup(providerType, model)] {
 		return false
+	}
+	lookupID := modelIDForCapabilityLookup(providerType, model)
+	switch providerType {
+	case "claude":
+		if strings.HasPrefix(lookupID, "claude-") && !strings.ContainsAny(lookupID, "[]") {
+			return false
+		}
+	case "codex":
+		if strings.HasPrefix(lookupID, "gpt-") || isOpenAIReasoningSeriesID(lookupID) {
+			return false
+		}
 	}
 	return isRuntimeSpecificModelID(model)
 }
@@ -562,6 +574,18 @@ func discoveryCacheKey(providerType string, runtimeCmd Command) string {
 	return providerType + ":" + runtimeCmd.cacheKey()
 }
 
+func versionedDiscoveryCacheKey(ctx context.Context, providerType string, runtimeCmd Command) string {
+	base := discoveryCacheKey(providerType, runtimeCmd)
+	if runtimeCmd.Path == "" {
+		runtimeCmd.Path = providerType
+	}
+	version, err := DetectVersion(ctx, runtimeCmd)
+	if err != nil || strings.TrimSpace(version) == "" {
+		return base
+	}
+	return base + ":" + strings.TrimSpace(version)
+}
+
 // ── Static catalogs ──
 
 // claudeStaticModels reflects the Claude Code CLI's accepted --model
@@ -584,7 +608,7 @@ func claudeStaticModels() []Model {
 }
 
 // codexStaticModels is the fallback for Codex versions older than 0.122.0
-// and for failed/malformed `codex debug models --bundled` calls. Keep it in
+// and for failed/malformed live and bundled discovery calls. Keep it in
 // sync with the visible entries in the newest locally verified bundled
 // catalog, plus still-common models from older Codex releases. Each entry
 // carries its own reasoning catalog so old/offline CLIs retain the same model

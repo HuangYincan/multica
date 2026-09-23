@@ -64,7 +64,7 @@ func (c *RedisModelCatalogCache) Get(ctx context.Context, runtimeID string) (*Mo
 	return &snapshot, nil
 }
 
-func (c *RedisModelCatalogCache) Put(ctx context.Context, runtimeID string, models []ModelEntry, unavailable []UnavailableModelEntry, supported bool) error {
+func (c *RedisModelCatalogCache) Put(ctx context.Context, runtimeID string, models []ModelEntry, unavailable []UnavailableModelEntry, supported bool, runtimeVersion string) error {
 	// fallback=false: ReportModelListResult refuses to Put a fallback catalog
 	// at all, so anything reaching a cache backend is a real discovery result.
 	if runtimeID == "" || !cacheableModelCatalog(models, supported, false) {
@@ -72,6 +72,7 @@ func (c *RedisModelCatalogCache) Put(ctx context.Context, runtimeID string, mode
 	}
 	snapshot := ModelCatalogSnapshot{
 		RuntimeID:         runtimeID,
+		RuntimeVersion:    runtimeVersion,
 		Models:            models,
 		UnavailableModels: unavailable,
 		Supported:         supported,

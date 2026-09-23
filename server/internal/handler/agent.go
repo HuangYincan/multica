@@ -2509,7 +2509,7 @@ func (h *Handler) acpThinkingDecision(ctx context.Context, provider string, runt
 	if !agent.UsesACPCatalogThinking(provider) {
 		return acpEffortPresent
 	}
-	snapshot := h.cachedModelCatalog(ctx, uuidToString(runtimeID))
+	snapshot := h.cachedModelCatalog(ctx, uuidToString(runtimeID), "")
 	if snapshot == nil || len(snapshot.Models) == 0 {
 		if ambiguousACPEffortProviders[provider] {
 			return acpEffortUnknown

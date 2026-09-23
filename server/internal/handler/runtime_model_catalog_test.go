@@ -28,7 +28,7 @@ func TestInMemoryModelCatalogCache_RoundTrip(t *testing.T) {
 	if got, err := cache.Get(ctx, "rt-1"); err != nil || got != nil {
 		t.Fatalf("cold cache should miss: got=%+v err=%v", got, err)
 	}
-	if err := cache.Put(ctx, "rt-1", sampleCatalog(), nil, true); err != nil {
+	if err := cache.Put(ctx, "rt-1", sampleCatalog(), nil, true, ""); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 
@@ -64,7 +64,7 @@ func TestInMemoryModelCatalogCache_RoundTrip(t *testing.T) {
 func TestInMemoryModelCatalogCache_ReturnsIndependentCopies(t *testing.T) {
 	ctx := context.Background()
 	cache := NewInMemoryModelCatalogCache()
-	if err := cache.Put(ctx, "rt-1", sampleCatalog(), nil, true); err != nil {
+	if err := cache.Put(ctx, "rt-1", sampleCatalog(), nil, true, ""); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 
@@ -101,7 +101,7 @@ func TestInMemoryModelCatalogCache_IsolatesNestedFields(t *testing.T) {
 		},
 		ServiceTiers: []ModelServiceTier{{ID: "fast", Name: "Fast"}},
 	}}
-	if err := cache.Put(ctx, "rt-1", source, nil, true); err != nil {
+	if err := cache.Put(ctx, "rt-1", source, nil, true, ""); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 
@@ -147,21 +147,21 @@ func TestInMemoryModelCatalogCache_SkipsUncacheableResults(t *testing.T) {
 	ctx := context.Background()
 	cache := NewInMemoryModelCatalogCache()
 
-	if err := cache.Put(ctx, "rt-empty", nil, nil, true); err != nil {
+	if err := cache.Put(ctx, "rt-empty", nil, nil, true, ""); err != nil {
 		t.Fatalf("put empty: %v", err)
 	}
 	if got, _ := cache.Get(ctx, "rt-empty"); got != nil {
 		t.Fatalf("empty catalog must not be cached: %+v", got)
 	}
 
-	if err := cache.Put(ctx, "rt-unsupported", sampleCatalog(), nil, false); err != nil {
+	if err := cache.Put(ctx, "rt-unsupported", sampleCatalog(), nil, false, ""); err != nil {
 		t.Fatalf("put unsupported: %v", err)
 	}
 	if got, _ := cache.Get(ctx, "rt-unsupported"); got != nil {
 		t.Fatalf("unsupported runtime must not be cached: %+v", got)
 	}
 
-	if err := cache.Put(ctx, "", sampleCatalog(), nil, true); err != nil {
+	if err := cache.Put(ctx, "", sampleCatalog(), nil, true, ""); err != nil {
 		t.Fatalf("put empty runtime id: %v", err)
 	}
 	if got, _ := cache.Get(ctx, ""); got != nil {
@@ -176,7 +176,7 @@ func TestInMemoryModelCatalogCache_ExpiresAndInvalidates(t *testing.T) {
 	cache := NewInMemoryModelCatalogCache()
 	cache.retainFor = 20 * time.Millisecond
 
-	if err := cache.Put(ctx, "rt-1", sampleCatalog(), nil, true); err != nil {
+	if err := cache.Put(ctx, "rt-1", sampleCatalog(), nil, true, ""); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 	time.Sleep(40 * time.Millisecond)
@@ -185,7 +185,7 @@ func TestInMemoryModelCatalogCache_ExpiresAndInvalidates(t *testing.T) {
 	}
 
 	cache.retainFor = modelCatalogServeWindow
-	if err := cache.Put(ctx, "rt-1", sampleCatalog(), nil, true); err != nil {
+	if err := cache.Put(ctx, "rt-1", sampleCatalog(), nil, true, ""); err != nil {
 		t.Fatalf("re-put: %v", err)
 	}
 	if err := cache.Invalidate(ctx, "rt-1"); err != nil {
@@ -243,7 +243,7 @@ func TestModelCatalogServeWindow_ServesDayOldSnapshotAndRevalidates(t *testing.T
 		t.Run(tc.name, func(t *testing.T) {
 			runtimeID := "rt-" + tc.name
 			seed(runtimeID, tc.age)
-			got := h.cachedModelCatalog(ctx, runtimeID)
+			got := h.cachedModelCatalog(ctx, runtimeID, "")
 			if tc.served && got == nil {
 				t.Fatalf("snapshot aged %s should still answer without waiting for the daemon", tc.age)
 			}
@@ -256,7 +256,7 @@ func TestModelCatalogServeWindow_ServesDayOldSnapshotAndRevalidates(t *testing.T
 	// Serving an aged snapshot must still queue the refresh — the whole reason a
 	// long window is safe.
 	seed("rt-revalidate", 2*time.Hour)
-	served := h.cachedModelCatalog(ctx, "rt-revalidate")
+	served := h.cachedModelCatalog(ctx, "rt-revalidate", "")
 	if served == nil {
 		t.Fatal("expected the aged snapshot to be served")
 	}
@@ -292,7 +292,7 @@ func TestInitiateListModels_ForceSkipsCatalogCache(t *testing.T) {
 		Label:  "Fable 5.1 (disabled)",
 		Reason: "Update Claude Code",
 	}}
-	if err := cache.Put(context.Background(), runtimeID, sampleCatalog(), unavailable, true); err != nil {
+	if err := cache.Put(context.Background(), runtimeID, sampleCatalog(), unavailable, true, ""); err != nil {
 		t.Fatalf("seed catalog: %v", err)
 	}
 	store := NewInMemoryModelListStore()
@@ -332,13 +332,60 @@ func TestInitiateListModels_ForceSkipsCatalogCache(t *testing.T) {
 	}
 }
 
+func TestInitiateListModels_CLIVersionUpgradeSkipsCatalogCache(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+	runtimeID := dbfx.Runtime(t, "CLI upgrade model refresh runtime")
+	if _, err := testPool.Exec(ctx,
+		`UPDATE agent_runtime SET metadata = jsonb_build_object('version', $1::text) WHERE id = $2`,
+		"2.1.278", runtimeID,
+	); err != nil {
+		t.Fatalf("seed runtime version: %v", err)
+	}
+
+	cache := NewInMemoryModelCatalogCache()
+	if err := cache.Put(ctx, runtimeID, sampleCatalog(), nil, true, "2.1.278"); err != nil {
+		t.Fatalf("seed catalog: %v", err)
+	}
+	if _, err := testPool.Exec(ctx,
+		`UPDATE agent_runtime SET metadata = jsonb_build_object('version', $1::text) WHERE id = $2`,
+		"2.1.280", runtimeID,
+	); err != nil {
+		t.Fatalf("upgrade runtime version: %v", err)
+	}
+
+	store := NewInMemoryModelListStore()
+	recorder := &pendingWorkRecorder{}
+	h := *testHandler
+	h.ModelCatalogCache = cache
+	h.ModelListStore = store
+	h.DaemonPendingWork = recorder
+
+	request := withURLParam(
+		newRequest(http.MethodPost, "/api/runtimes/"+runtimeID+"/models", nil),
+		"runtimeId",
+		runtimeID,
+	)
+	var result ModelListRequest
+	testutil.Call(t, h.InitiateListModels, request).Want(http.StatusOK).JSON(&result)
+	if result.Status != ModelListPending || result.Cached {
+		t.Fatalf("open after CLI upgrade = %+v, want pending live discovery", result)
+	}
+	if recorder.count() != 1 {
+		t.Fatalf("CLI upgrade queued %d daemon requests, want 1", recorder.count())
+	}
+}
+
 // failingModelCatalogCache reports a backend error on every read.
 type failingModelCatalogCache struct{}
 
 func (failingModelCatalogCache) Get(context.Context, string) (*ModelCatalogSnapshot, error) {
 	return nil, errors.New("redis down")
 }
-func (failingModelCatalogCache) Put(context.Context, string, []ModelEntry, []UnavailableModelEntry, bool) error {
+func (failingModelCatalogCache) Put(context.Context, string, []ModelEntry, []UnavailableModelEntry, bool, string) error {
 	return nil
 }
 func (failingModelCatalogCache) Invalidate(context.Context, string) error { return nil }
@@ -349,12 +396,12 @@ func (failingModelCatalogCache) Invalidate(context.Context, string) error { retu
 func TestCachedModelCatalog_DegradesToMiss(t *testing.T) {
 	ctx := context.Background()
 
-	if got := (&Handler{}).cachedModelCatalog(ctx, "rt-1"); got != nil {
+	if got := (&Handler{}).cachedModelCatalog(ctx, "rt-1", ""); got != nil {
 		t.Fatalf("nil cache should miss, got %+v", got)
 	}
 
 	h := &Handler{ModelCatalogCache: failingModelCatalogCache{}}
-	if got := h.cachedModelCatalog(ctx, "rt-1"); got != nil {
+	if got := h.cachedModelCatalog(ctx, "rt-1", ""); got != nil {
 		t.Fatalf("failing cache should miss, got %+v", got)
 	}
 
@@ -363,7 +410,7 @@ func TestCachedModelCatalog_DegradesToMiss(t *testing.T) {
 	inmem := NewInMemoryModelCatalogCache()
 	inmem.entries["rt-1"] = ModelCatalogSnapshot{RuntimeID: "rt-1", Supported: true, StoredAt: time.Now()}
 	h = &Handler{ModelCatalogCache: inmem}
-	if got := h.cachedModelCatalog(ctx, "rt-1"); got != nil {
+	if got := h.cachedModelCatalog(ctx, "rt-1", ""); got != nil {
 		t.Fatalf("empty cached catalog should miss, got %+v", got)
 	}
 }
@@ -474,7 +521,7 @@ func TestInMemoryModelCatalogCache_RoundTripsUnavailableModels(t *testing.T) {
 		Label:  "Fable 5.1 (disabled)",
 		Reason: "Update to 2.1.255+ to use Fable 5.1",
 	}}
-	if err := cache.Put(ctx, "rt-1", sampleCatalog(), unavailable, true); err != nil {
+	if err := cache.Put(ctx, "rt-1", sampleCatalog(), unavailable, true, ""); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 
